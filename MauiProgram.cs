@@ -21,6 +21,13 @@ public static class MauiProgram
         builder.Services.AddSingleton<Mendix_Tools.Components.Layout.ThemeService>();
         builder.Services.AddSingleton<Mendix_Tools.Components.Layout.ShellState>();
 
+        // ---- MT-10 Environments seam (merge point with MT-08) ----
+        // The dashboard talks only to IEnvironmentService; MT-20 swaps this one line for
+        // the real Deploy-v1/Backups-v2 client with no page changes. Mock carries no state.
+        builder.Services.AddSingleton<Mendix_Tools.Services.IEnvironmentService,
+            Mendix_Tools.Services.MockEnvironmentService>();
+        // ---- end MT-10 block ----
+
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
