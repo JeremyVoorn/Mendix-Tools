@@ -159,6 +159,55 @@ public sealed class RealBackupServiceTests
         Assert.Equal("the-env-id", client.LastEnvironmentId);
     }
 
+    // ── MT-15 CreateBackupAsync — outcome translation + mapping ───────────────────────────
+
+    [Fact]
+    public async Task CreateBackup_Success_ReturnsMappedQueuedSnapshot()
+    {
+        var created = new SnapshotRaw
+        {
+            SnapshotId = "snap-new", Comment = "Backup created from Mendix Tools",
+            State = "queued", CreatedAt = new DateTimeOffset(2026, 7, 22, 10, 0, 0, TimeSpan.Zero),
+        };
+        var client = new FakeApiClient
+        {
+            Result = MendixApiResult<SnapshotsResponseRaw>.Ok(SampleResponse()),
+            CreateResult = MendixApiResult<SnapshotRaw>.Ok(created),
+        };
+        var service = new RealBackupService(client);
+
+        var snapshot = await service.CreateBackupAsync("proj", "env", "hello");
+
+        Assert.Equal("snap-new", snapshot.SnapshotId);
+        Assert.Equal(SnapshotState.Queued, snapshot.State);
+        Assert.Equal("proj", client.LastCreateProjectId);
+        Assert.Equal("hello", client.LastCreateComment);
+    }
+
+    [Fact]
+    public async Task CreateBackup_Unauthorized_ThrowsUnauthorizedAccess()
+    {
+        var client = new FakeApiClient
+        {
+            Result = MendixApiResult<SnapshotsResponseRaw>.Ok(SampleResponse()),
+            CreateResult = MendixApiResult<SnapshotRaw>.Fail(MendixApiOutcome.Unauthorized, "err"),
+        };
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => new RealBackupService(client).CreateBackupAsync("proj", "env"));
+    }
+
+    [Fact]
+    public async Task CreateBackup_RateLimited_ThrowsHttpRequestException()
+    {
+        var client = new FakeApiClient
+        {
+            Result = MendixApiResult<SnapshotsResponseRaw>.Ok(SampleResponse()),
+            CreateResult = MendixApiResult<SnapshotRaw>.Fail(MendixApiOutcome.RateLimited, "err"),
+        };
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => new RealBackupService(client).CreateBackupAsync("proj", "env"));
+    }
+
     // ── Fakes & sample data ───────────────────────────────────────────────────────────────
 
     private static SnapshotsResponseRaw SampleResponse() => new()
@@ -201,8 +250,11 @@ public sealed class RealBackupServiceTests
     private sealed class FakeApiClient : IMendixApiClient
     {
         public required MendixApiResult<SnapshotsResponseRaw> Result { get; init; }
+        public MendixApiResult<SnapshotRaw>? CreateResult { get; init; }
         public string? LastProjectId { get; private set; }
         public string? LastEnvironmentId { get; private set; }
+        public string? LastCreateProjectId { get; private set; }
+        public string? LastCreateComment { get; private set; }
 
         public Task<MendixApiResult<IReadOnlyList<MendixAppRaw>>> GetAppsAsync(CancellationToken ct = default)
             => throw new Xunit.Sdk.XunitException("RealBackupService must not call GetAppsAsync.");
@@ -215,6 +267,13 @@ public sealed class RealBackupServiceTests
             LastProjectId = projectId;
             LastEnvironmentId = environmentId;
             return Task.FromResult(Result);
+        }
+
+        public Task<MendixApiResult<SnapshotRaw>> CreateSnapshotAsync(string projectId, string environmentId, string? comment = null, CancellationToken ct = default)
+        {
+            LastCreateProjectId = projectId;
+            LastCreateComment = comment;
+            return Task.FromResult(CreateResult ?? throw new Xunit.Sdk.XunitException("CreateResult not configured."));
         }
     }
 }

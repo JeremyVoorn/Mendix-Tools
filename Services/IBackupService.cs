@@ -29,4 +29,19 @@ public interface IBackupService
     /// <param name="environmentId">The environment's <c>EnvironmentId</c>.</param>
     /// <param name="ct">Cancellation for reloads/navigation-away.</param>
     Task<BackupListResult> GetSnapshotsAsync(string projectId, string environmentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// MT-15 — requests a fresh snapshot for one environment (Backups v2 <c>POST snapshots</c>) and
+    /// returns it in its initial <c>queued</c>/<c>running</c> state; the caller polls
+    /// <see cref="GetSnapshotsAsync"/> until it reaches Available/Failed. This is the one-shot
+    /// service-level create (the Backups screen drives creation through a job via
+    /// <c>BackupJobs</c>; MT-17/X5 "backup-before-deploy" compose this method directly).
+    ///
+    /// Same THROW-on-failure contract as <see cref="GetSnapshotsAsync"/> so callers map by
+    /// exception type: <see cref="UnauthorizedAccessException"/> (401/403 → "Credentials invalid —
+    /// check Settings › Credentials"), <see cref="HttpRequestException"/> (network/429),
+    /// <see cref="InvalidOperationException"/> (invalid/empty response). Never leaks a secret.
+    /// </summary>
+    /// <param name="comment">Optional snapshot comment; blank/null sends an empty-comment create.</param>
+    Task<Snapshot> CreateBackupAsync(string projectId, string environmentId, string? comment = null, CancellationToken ct = default);
 }

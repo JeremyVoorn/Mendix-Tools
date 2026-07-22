@@ -83,6 +83,42 @@ public sealed class RealBackupService : IBackupService
         }
     }
 
+    public async Task<Snapshot> CreateBackupAsync(
+        string projectId, string environmentId, string? comment = null, CancellationToken ct = default)
+    {
+        var result = await _api.CreateSnapshotAsync(projectId, environmentId, comment, ct).ConfigureAwait(false);
+
+        switch (result.Outcome)
+        {
+            case MendixApiOutcome.Success:
+                if (result.Value is null)
+                {
+                    throw new InvalidOperationException("Couldn't read the created snapshot from the Mendix API.");
+                }
+
+                return MapSnapshot(result.Value);
+
+            case MendixApiOutcome.Unauthorized:
+            case MendixApiOutcome.Forbidden:
+                throw new UnauthorizedAccessException("The Mendix credential was rejected.");
+
+            case MendixApiOutcome.NetworkError:
+                throw new HttpRequestException("Could not reach the Mendix Backups API.");
+
+            case MendixApiOutcome.RateLimited:
+                throw new HttpRequestException("The Mendix Backups API is rate limiting; try again shortly.");
+
+            case MendixApiOutcome.NoCredentials:
+                // Unreachable from the wired screen (no environment is selectable without a
+                // credential); treat defensively as a credential problem rather than a crash.
+                throw new UnauthorizedAccessException("No Mendix credential is configured.");
+
+            case MendixApiOutcome.InvalidResponse:
+            default:
+                throw new InvalidOperationException("Couldn't create a snapshot via the Mendix API.");
+        }
+    }
+
     /// <summary>
     /// Maps a raw Backups v2 snapshot to the app model. All fields line up 1:1 with the
     /// live-verified shape (MT-01 §4); Type is derived from the comment via

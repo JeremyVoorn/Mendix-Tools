@@ -46,6 +46,13 @@
              exercised with a fake IMendixApiClient — no live API call is ever made. -->
         <Compile Include="..\Services\IBackupService.cs" Link="AppServices\IBackupService.cs" />
         <Compile Include="..\Services\RealBackupService.cs" Link="AppServices\RealBackupService.cs" />
+        <!-- MT-15/MT-16 — the create+download job orchestrator and its toast seam are
+             MAUI/Blazor-free (typed client + job engine + metadata store + IUserNotifier only),
+             so the real source is linked here and exercised with fakes — no live API call. The
+             ToastUserNotifier ADAPTER is NOT linked (it pulls in the Blazor ToastService); tests
+             use a fake IUserNotifier. ArchiveIntegrity lives in MendixTools.Core (project ref). -->
+        <Compile Include="..\Services\IUserNotifier.cs" Link="AppServices\IUserNotifier.cs" />
+        <Compile Include="..\Services\BackupJobs.cs" Link="AppServices\BackupJobs.cs" />
     </ItemGroup>
 
 </Project>

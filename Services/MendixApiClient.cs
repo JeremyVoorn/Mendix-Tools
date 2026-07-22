@@ -6,7 +6,8 @@ namespace Mendix_Tools.Services;
 
 /// <summary>
 /// MT-20 — the shared, low-level Mendix Platform API client (Deploy API v1 + Backups API v2).
-/// Owned by MT-20; reused unchanged by MT-14 (backups list) and MT-16 (archive download).
+/// Owned by MT-20; reused unchanged by MT-14 (backups list) and MT-15 (create snapshot); MT-16
+/// (archive download) extends it next.
 ///
 /// Design notes:
 ///   • MAUI/Blazor-free (uses only <see cref="HttpClient"/> + <see cref="IMendixCredentialProvider"/>),
@@ -25,9 +26,7 @@ public sealed class MendixApiClient : IMendixApiClient
 
     /// <summary>
     /// Backups API v2 base URL (snapshots list/create, and — for MT-16 — archive create/poll/
-    /// download). Archive download links expire 8 hours after completion (MT-01 confirmed);
-    /// MT-16 re-requests a fresh link on expiry. Not exercised here, but the base URL and the
-    /// 429/Retry-After + network handling below are already the shape MT-16 needs.
+    /// download). Archive download links expire 8 hours after completion (MT-01 confirmed).
     /// </summary>
     public const string BackupsV2BaseUrl = "https://deploy.mendix.com/api/v2/";
 
@@ -72,17 +71,35 @@ public sealed class MendixApiClient : IMendixApiClient
         return GetAsync<SnapshotsResponseRaw>(url, ct);
     }
 
-    private async Task<MendixApiResult<T>> GetAsync<T>(Uri url, CancellationToken ct)
+    public Task<MendixApiResult<SnapshotRaw>> CreateSnapshotAsync(
+        string projectId, string environmentId, string? comment = null, CancellationToken ct = default)
+    {
+        var path = $"apps/{Uri.EscapeDataString(projectId)}/environments/{Uri.EscapeDataString(environmentId)}/snapshots";
+        var url = new Uri(new Uri(BackupsV2BaseUrl), path);
+        // Body is { "comment": "..." } or {} — never anything that could carry a secret.
+        object body = string.IsNullOrWhiteSpace(comment) ? new { } : new { comment };
+        return SendJsonAsync<SnapshotRaw>(HttpMethod.Post, url, JsonContent.Create(body), ct);
+    }
+
+    private Task<MendixApiResult<T>> GetAsync<T>(Uri url, CancellationToken ct) =>
+        SendJsonAsync<T>(HttpMethod.Get, url, content: null, ct);
+
+    private async Task<MendixApiResult<T>> SendJsonAsync<T>(HttpMethod method, Uri url, HttpContent? content, CancellationToken ct)
     {
         var credential = await _credentials.GetCredentialAsync(ct).ConfigureAwait(false);
         if (credential is null)
         {
+            content?.Dispose();
             return MendixApiResult<T>.Fail(
                 MendixApiOutcome.NoCredentials,
                 "No Mendix credential is configured. Connect your Mendix account in Settings › Credentials.");
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(method, url);
+        if (content is not null)
+        {
+            request.Content = content;
+        }
         // Per-request auth (never on DefaultRequestHeaders) so credentials are not shared across
         // the pooled HttpClient and a credential change takes effect on the next call.
         request.Headers.Add(UsernameHeader, credential.Username);

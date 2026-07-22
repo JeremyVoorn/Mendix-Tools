@@ -126,7 +126,7 @@ public sealed class JobEngine : IJobEngine
     {
         try
         {
-            string? logPath = _logDirectory is not null ? WriteLogFile(job) : null;
+            string? logPath = _logDirectory is not null ? await WriteLogFileAsync(job).ConfigureAwait(false) : null;
 
             var entry = new JobHistoryEntry
             {
@@ -147,13 +147,15 @@ public sealed class JobEngine : IJobEngine
         }
     }
 
-    private string WriteLogFile(Job job)
+    private async Task<string> WriteLogFileAsync(Job job)
     {
+        // MT-16/MT-17 do-first tech-debt (MT-09 review): async write — these high-volume flows
+        // stream large logs, so the terminal log-file write must not block the finishing thread.
         Directory.CreateDirectory(_logDirectory!);
         var path = Path.Combine(_logDirectory!, $"{job.Id:N}.log");
         var lines = job.Log.Select(l =>
             $"{l.Timestamp:O} [{l.Level,-7}] {l.Message}");
-        File.WriteAllLines(path, lines);
+        await File.WriteAllLinesAsync(path, lines).ConfigureAwait(false);
         return path;
     }
 

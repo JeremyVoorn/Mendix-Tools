@@ -4,9 +4,9 @@
 > Test spec: the acceptance criteria below are what the Tester/Reviewer verifies.
 > Design spec: where a story says "matches `<file>`", that file in
 > `docs/design-system/` **is** the spec (layout, copy, spacing, states).
-> Last updated: 2026-07-22 — **Sprint 2 COMPLETE** (MT-08..MT-13 Done, merged @2839e97,
-> 40 tests green, security review clean). Sprint 3 (flagship flow) is active.
-> Ready-for-dev: MT-14, MT-20. MT-19 still blocked on the D5 decision. **Sprint 2 groomed dev-ready:** live field set baked
+> Last updated: 2026-07-22 — **MT-14 + MT-20 Done** (wired to the real Mendix API,
+> re-review passed, 89 tests green). Follow-up **MT-20b** opened for the three deferred
+> polish items. Ready-for-dev: MT-15, MT-16, MT-20b. MT-19 still blocked on D5. **Sprint 2 groomed dev-ready:** live field set baked
 > into MT-10/MT-20; N6 "last backup: keep it, lazy-loaded" decision propagated (open
 > question 3 closed); test-project + bUnit DoD sharpened on MT-08/MT-09; Sprint 2 status
 > flags corrected to reflect the MT-05/06/07 dependency.
@@ -132,60 +132,27 @@ vault-backed Mendix credentials). **Sprint 3 is now the active sprint.**
 with real progress and a real destructive-action guard. `[ENV]` stories call real
 Mendix APIs — use a test app/environment, never a customer production app, during dev.
 
-> **Slice order & readiness (Sprint 2 complete):**
-> - **Ready-for-dev today:** **MT-14** (wired backups list — all deps Done) and
->   **MT-20** (wired Environments — all deps Done). MT-14 is the flagship-flow entry
->   point; start there.
-> - **Chain behind MT-14:** MT-15 (create) → then MT-16 (download, also needs MT-09,
->   Done) → MT-17 (restore orchestration) → MT-18 (restore dialog/UI).
+> **Slice order & readiness (MT-14 + MT-20 Done — wired to the real API):**
+> - **Ready-for-dev today:** **MT-15** (create backup), **MT-16** (download — deps MT-14
+>   + MT-09 both Done), and **MT-20b** (Environments/Backups polish — stale-cache,
+>   auto-refresh, pagination). All build on the now-wired `MendixApiClient` /
+>   `RealBackupService` / `RealEnvironmentService`.
+> - **Chain behind them:** MT-16 → MT-17 (restore orchestration) → MT-18 (restore
+>   dialog/UI). MT-15 and MT-16 are independent and can go in parallel.
 > - **Still blocked on the Visionair:** **MT-19** (destructive-action guard) waits on
 >   the **D5 decision** (open question 1) — needed before MT-17's destructive step and
 >   MT-18. Push for D5 now so it doesn't stall the flagship.
-> - **No in-app credential pre-validation exists** (MT-13 accepted deviation, below):
->   every first real cloud call — MT-14, MT-15, MT-16, MT-20 — must handle 401/403
->   gracefully rather than assuming a validated key.
+> - **Wired-from-the-start directive (scope-slicing lesson from MT-14):** MT-14 was
+>   first built mock-first for parallel-worktree cleanliness, which conflicted with the
+>   vision's **wired-first** directive for the Backups/Restore pillar; it has since been
+>   wired. For the remaining cloud stories (MT-15/16/17/18), **build wired from the
+>   start** where the shared `MendixApiClient` already supports it, and mock only the
+>   parts the client doesn't yet cover.
+> - **No in-app credential pre-validation exists** (MT-13 accepted deviation): every
+>   first real cloud call must handle 401/403 gracefully rather than assuming a
+>   validated key.
 
-### MT-14 — Backups: wired list per environment (N7a) `[ENV]` — **Size: M** — READY
-*As a consultant, I want to see real snapshots for a selected environment, so that I can
-pick the exact backup I need without opening Sprintr.*
-
-**Acceptance criteria**
-- Given a stored credential and a selected source environment, when the Backups page
-  loads, then real snapshots from the Backups API v2 render in the DataTable per
-  `ui_kits/app/BackupsScreen.jsx` **with the column set amended by the live-verified
-  API shape**: Created (mono), Environment (Tag), Type (derived Badge — see below) +
-  comment, Expires (`expires_at`, mono), State (Badge, "Available" = success+dot),
-  row actions (Restore, Download), multi-select with "Download N" bulk button
-  appearing on selection. **The mock's Size column is cut** — the snapshots API
-  returns no size field; size is only known after download (MT-16 records it locally).
-- Given the API has no type field, when a snapshot's `comment` is
-  "Automatically created nightly snapshot", then Type renders **Automatic**; when
-  "Backup created by Mendix pipeline", then **Pipeline**; otherwise **Manual** with
-  the user's comment shown (truncated with tooltip).
-- Given failed snapshots exist (live data: 11 of 139), when the list renders, then
-  `state=failed` rows show a danger Badge and surface the API's `status_message`
-  (inline or tooltip) — failed rows have no Restore/Download actions.
-- Given the response shape `{ total, snapshots[] }`, when `total` exceeds the fetched
-  page, then the list supports pagination or load-more driven by `total` (no silent
-  truncation).
-- Given the environment Select, when changed, then the list reloads for that
-  environment; Refresh re-fetches.
-- Given an API failure (401/403/timeout), when the list loads, then the error states
-  what happened and what to do next ("Credentials invalid — check Settings ›
-  Credentials"), never a raw exception. **This is the first real cloud call and there
-  is no in-app credential pre-validation** (MT-13 accepted deviation), so a bad/rejected
-  key surfaces here for the first time — it must degrade gracefully, not crash.
-- Given no backups exist, when the list loads, then an empty state says so plainly
-  (no mock rows ever shown against a real credential).
-- The API client lives in the core library behind an interface; response parsing is
-  unit-tested against recorded/sample JSON.
-
-**Dependencies:** MT-06, MT-07, MT-13. (Column set final — live-verified 2026-07-22.)
-**DoD extras:** none.
-
----
-
-### MT-15 — Backups: create snapshot (N7b) `[ENV]` — **Size: S** — **BLOCKED(MT-14)**
+### MT-15 — Backups: create snapshot (N7b) `[ENV]` — **Size: S** — READY
 *As a consultant, I want to trigger a fresh snapshot from the app, so that "make a
 backup first" is one click instead of a Sprintr round-trip.*
 
@@ -209,12 +176,14 @@ backup first" is one click instead of a Sprintr round-trip.*
 - Non-destructive but `[ENV]`: creating snapshots on a real environment is allowed;
   the action never targets an environment other than the one selected on screen.
 
-**Dependencies:** MT-14 (+ MT-05 Toast).
+**Dependencies:** MT-14 (Done — wired list + `RealBackupService`), MT-05 (Done — Toast).
+**Build wired from the start:** extend `IMendixApiClient`/`RealBackupService` with the
+create-snapshot call; no mock-first detour (scope-slicing lesson from MT-14).
 **DoD extras:** none.
 
 ---
 
-### MT-16 — Backups: download archive with progress + integrity check (N7c) `[ENV]` — **Size: M** — **BLOCKED(MT-14)**
+### MT-16 — Backups: download archive with progress + integrity check (N7c) `[ENV]` — **Size: M** — READY
 *As a consultant, I want backups downloaded to my data directory with visible progress
 and an integrity check, so that files land where the tooling needs them and I trust
 them.*
@@ -258,8 +227,11 @@ them.*
 - Given archive creation fails server-side, when polled, then the job fails with the
   API state and the log records the response.
 
-**Dependencies:** MT-09 (Done), MT-14, MT-12 (Done — checksum pref), MT-11 (Done —
-data directory). **Blocked only on MT-14.**
+**Dependencies:** MT-09 (Done), MT-14 (Done — wired list + `RealBackupService`),
+MT-12 (Done — checksum pref), MT-11 (Done — data directory). **All deps satisfied.**
+**Build wired from the start:** extend the shared `MendixApiClient`/`RealBackupService`
+with archive-create/poll/download; mock only what the client doesn't yet cover
+(scope-slicing lesson from MT-14).
 **DoD extras:** orchestration state machine unit-tested with a mocked API client.
 **Do-first (from MT-09 review, non-blocking but due before this high-volume flow):**
 switch the JobEngine log-file write to async (`File.WriteAllLinesAsync`) — the current
@@ -366,58 +338,37 @@ confirm D5 before starting; the copy rules below hold under any mechanism)*
 
 ---
 
-### MT-20 — Environments dashboard, wired read-only (N6b) `[ENV]` — **Size: M** — READY
-*As a consultant, I want the dashboard to show my real apps and environments, so that
-the home screen is true.*
+### MT-20b — Environments/Backups polish: stale-cache, auto-refresh, pagination (N6/N7) `[ENV]` — **Size: M** — READY
+*As a consultant, I want the dashboard to survive offline, refresh itself, and page
+through all my backups, so that the wired screens are complete, not just first-page
+happy-path.*
+
+Tracks the three items **deliberately deferred** and marked `TODO(MT-20b)` in code when
+MT-14/MT-20 shipped their wired+graceful scope.
 
 **Acceptance criteria**
-- Given a stored credential, when the Environments page loads, then real apps and
-  environments (Deploy API v1) render through the existing `IEnvironmentService` seam
-  from MT-10, with the **field set locked by D1 (vision N6)**: status
-  (Running/Stopped/Empty), Mendix version (confirmed live for licensed nodes, e.g.
-  `10.24.16.96987`), host (`Url`), mode, production marker.
-  **Trimmed and never faked:** "Degraded", "Deploying", region, live DB size.
-- Given sandbox environments return no `MendixVersion`/`ModelVersion`/`RuntimeLayer`
-  (confirmed live), when rendered, then those DTO fields are nullable and cards show
-  "—" — never a fake value or an error.
-- Given `GET /api/1/apps` includes personal sandboxes alongside licensed apps
-  (confirmed live), when the list renders, then sandboxes are grouped separately or
-  behind a filter toggle so customer apps stay prominent (reusing MT-10's grouping).
-  (Extra fields available but out of v1 scope, noted for later: `Instances`,
-  `MemoryPerInstance`, `TotalMemory`, `RuntimeLayer`.)
-- Given the **N6 "last backup" decision (keep it, lazy-loaded)**, when the dashboard
-  loads, then each card's "Backup" cell fills **independently per environment** from a
-  single Backups-v2 snapshots call (newest `created_at`) — the same call MT-14 makes —
-  through the `IEnvironmentService` seam MT-10 defined; cards never block on it, results
-  are cached in the metadata store (MT-08) for the stale/offline path, and **sandboxes
-  show "—"** (no backups). Polite pacing/throttling of the per-env N+1 calls (respect
-  429 as elsewhere).
-- Given the stat row, when rendered, then aggregates are computed from real data.
-- Given the apps/environments call returns **401/403** (no in-app credential
-  pre-validation exists — MT-13 accepted deviation; this is often the user's first real
-  cloud call), when it fails, then the dashboard shows "Credentials invalid — check
-  Settings › Credentials" gracefully, never a crash.
-- Given a fetch succeeds, when the app is later offline or a refresh fails, then the
-  last-known state renders from the metadata-store cache with a visible stale
-  indicator including fetched-at time (vision principle 6); given no cache and no
-  network, an offline empty state explains it.
-- Given Refresh (topbar or button), when clicked, then data re-fetches; auto-refresh
-  honours the MT-12 preference (30s) and pauses while offline.
-- Read-only: card quick actions may link out (Open in browser) and jump to Backups
-  with the environment preselected; no start/stop actions in this story.
-- **Inherited from MT-10 (fix on real-client swap-in):** `Environments.razor`
-  `LoadBackupAsync` currently only catches `OperationCanceledException`. When the real
-  Backups-v2 client replaces the mock, **add a generic catch** that sets the cell to an
-  error/"—" state, so a thrown per-env backup call is never left unobserved.
-- **Inherited from MT-10 (wire the placeholder stat tiles):** the "Local DBs: 3" and
-  "Storage used: 12 GB" stat tiles are hardcoded placeholders in MT-10 — wire them to
-  real metadata-store data (MT-08) here (or flag them clearly as placeholders until X1
-  provides real local-DB counts). Decide and record which in the PR.
+- **Stale cache (MT-08):** Given a prior successful fetch, when the app is offline or a
+  refresh fails, then `RealEnvironmentService.GetAppsAsync` reads the cached
+  `cached_environment_state` and the dashboard renders last-known data with a **stale
+  indicator + fetched-at timestamp** (vision principle 6); on every successful fetch it
+  **writes** the cache. Given no cache and no network, the offline empty state explains
+  it.
+- **Auto-refresh (MT-12):** Given the `AutoRefreshEnabled` preference is on, when 30s
+  elapse, then `Environments.razor` `RefreshAsync` re-fetches; when off, it does not;
+  auto-refresh **pauses while offline** and resumes on reconnect. Manual Refresh still
+  works regardless.
+- **Backups pagination:** Given a snapshot list where `total` exceeds the first page,
+  when the user pages/loads more, then `RealBackupService.GetSnapshotsAsync` +
+  `IMendixApiClient` accept **offset/limit** and fetch beyond page 1 (today the UI shows
+  "N of total" but only page 1). No silent truncation.
+- All three verified against the real client; 401/403/429/offline all degrade
+  gracefully (reusing the patterns MT-14/MT-20 established).
 
-**Dependencies:** MT-08 (cache + last-backup cache), MT-10 (Done — seam + grouping),
-MT-12 (auto-refresh pref), MT-13 (credential). (Open question 3 closed — N6 "last
-backup" decision recorded above.)
-**DoD extras:** none (D1 field set and N6 last-backup decision are final).
+**Dependencies:** MT-14 (Done), MT-20 (Done), MT-08 (Done — cache table), MT-12
+(Done — pref). **Flag:** `[ENV]` — user-verify-live (the app calls the real API only
+when the user runs it with their own account).
+**DoD extras:** the `TODO(MT-20b)` markers in `RealEnvironmentService` /
+`Environments.razor` / `RealBackupService` are removed as each item lands.
 
 ---
 
@@ -448,6 +399,33 @@ backup" decision recorded above.)
 - **L7 — Slack deploy notifications**: after deploy ships.
 
 ## DONE
+
+### MT-20 — Environments dashboard, wired read-only (N6b) — Done 2026-07-22
+Wired to the real Mendix API via `MendixApiClient` + `RealEnvironmentService`, **passed
+focused re-review** (all three prior Criticals CLOSED, 89 tests green, build 0/0,
+security clean). D1-locked field set, sandbox nullable fields + grouping, lazy per-env
+last-backup, and **actionable credential-error / empty / offline state cards** on the
+dashboard; first 401/403 handled gracefully. The MT-10-inherited `LoadBackupAsync`
+generic-catch fix is applied.
+
+- **User-verify-live pending:** the app makes real Deploy-v1 calls only when the user
+  runs it with their own account — the API was never called during dev.
+- **Three items deliberately deferred → tracked in MT-20b** (stale-cache read/write,
+  30s auto-refresh, backups pagination), marked `TODO(MT-20b)` in code.
+
+### MT-14 — Backups: wired list per environment (N7a) — Done 2026-07-22
+Wired to the real Backups-v2 client via `RealBackupService` (mock kept for offline dev),
+**passed focused re-review** (89 tests green, build 0/0, security clean). Column set per
+the live-verified shape (comment-derived Type, `expires_at`, failed rows with
+`status_message`, Size cut), env Select reload + Refresh, graceful first-401/403.
+
+- **User-verify-live pending** (real API only on the user's own run).
+- **Scope-slicing lesson recorded** (see Sprint 3 slice note): MT-14 was first built
+  mock-first for parallel-worktree cleanliness, conflicting with the vision's
+  **wired-first** directive for the Backups/Restore pillar; now wired. Remaining cloud
+  stories (MT-15/16/17/18) are to be built wired-from-the-start where `MendixApiClient`
+  already supports it.
+- **Pagination gap deferred → MT-20b** (shows "N of total" but only page 1).
 
 ### MT-13 — Settings: Credentials tab, vault-backed (N9c, D1 shape) — Done 2026-07-22
 Built in a parallel worktree, merged to master (commit `2839e97`), **passed review**

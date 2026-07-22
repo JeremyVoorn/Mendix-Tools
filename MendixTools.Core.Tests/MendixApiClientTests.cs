@@ -192,6 +192,56 @@ public sealed class MendixApiClientTests
         Assert.Equal(MendixApiOutcome.NetworkError, result.Outcome);
     }
 
+    // ── MT-15 client tests: create snapshot ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreateSnapshotAsync_PostsToSnapshots_WithCommentBody_ParsesQueuedSnapshot()
+    {
+        string? capturedBody = null;
+        HttpMethod? capturedMethod = null;
+        var handler = new FakeHandler(request =>
+        {
+            capturedMethod = request.Method;
+            capturedBody = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+            return Json("""{ "snapshot_id": "s-new", "state": "queued", "comment": "before release" }""");
+        });
+        var client = NewClient(handler);
+
+        var result = await client.CreateSnapshotAsync("proj", "env-1", "before release");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("s-new", result.Value!.SnapshotId);
+        Assert.Equal("queued", result.Value.State);
+        Assert.Equal(HttpMethod.Post, capturedMethod);
+        Assert.Contains("before release", capturedBody);
+        Assert.Equal(
+            "https://deploy.mendix.com/api/v2/apps/proj/environments/env-1/snapshots",
+            Assert.Single(handler.Requests).RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task CreateSnapshotAsync_NoComment_SendsEmptyObject()
+    {
+        string? body = null;
+        var handler = new FakeHandler(request =>
+        {
+            body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+            return Json("""{ "snapshot_id": "s-new", "state": "queued" }""");
+        });
+
+        await NewClient(handler).CreateSnapshotAsync("proj", "env-1");
+
+        Assert.Equal("{}", body);
+    }
+
+    [Fact]
+    public async Task CreateSnapshotAsync_401_MapsToUnauthorized_NoThrow()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var result = await NewClient(handler).CreateSnapshotAsync("proj", "env-1");
+        Assert.Equal(MendixApiOutcome.Unauthorized, result.Outcome);
+    }
+
     // ── RealEnvironmentService-level tests (mapping) ──────────────────────────────────────
 
     [Fact]

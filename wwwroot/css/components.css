@@ -745,3 +745,21 @@ html,body{height:100%;}
   padding:10px 16px;border-top:var(--border-w) solid var(--border-subtle);
   font-size:var(--text-xs);color:var(--text-tertiary);
 }
+
+/* ===================================================================== */
+/* MT-15 — active-job card (create backup) per BackupsScreen.jsx:         */
+/* StatusDot pulse + phase · context + mono % + ProgressBar, tone shifts  */
+/* to success/danger at terminal, Dismiss/Cancel. Reused by MT-16 later.  */
+/* ===================================================================== */
+
+.mxt-jobcard-card{border-color:var(--accent-subtle-border);}
+.mxt-jobcard-card--success{border-color:var(--success);}
+.mxt-jobcard-card--danger{border-color:var(--danger);}
+
+.mxt-jobcard{display:flex;align-items:center;gap:12px;}
+.mxt-jobcard__body{flex:1;min-width:0;}
+.mxt-jobcard__head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:8px;}
+.mxt-jobcard__phase{font-size:var(--text-sm);font-weight:var(--fw-medium);color:var(--text-primary);}
+.mxt-jobcard__ctx{font-family:var(--font-mono);color:var(--text-tertiary);margin-left:4px;}
+.mxt-jobcard__pct{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-tertiary);}
+.mxt-jobcard__error{margin-top:8px;font-size:var(--text-xs);color:var(--danger-text);line-height:1.4;}

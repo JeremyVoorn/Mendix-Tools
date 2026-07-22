@@ -48,6 +48,34 @@ public sealed class MockBackupService : IBackupService
         return new BackupListResult(RichTotal, BuildRichPage());
     }
 
+    public async Task<Snapshot> CreateBackupAsync(
+        string projectId, string environmentId, string? comment = null, CancellationToken ct = default)
+    {
+        // Simulate the Backups-v2 POST round-trip; returns a fresh snapshot in the initial
+        // queued state (the create job then polls it to Completed). MOCK-ONLY routing lets the
+        // Tester exercise the failure toast: the "kwik-accp" env simulates a rejected credential.
+        await Task.Delay(300, ct).ConfigureAwait(false);
+
+        if (string.Equals(environmentId, "kwik-accp", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UnauthorizedAccessException("The Mendix credential was rejected.");
+        }
+
+        var now = DateTimeOffset.Now;
+        return new Snapshot
+        {
+            SnapshotId = $"snap-new-{now:HHmmss}",
+            Comment = string.IsNullOrWhiteSpace(comment) ? "Backup created from Mendix Tools" : comment!,
+            State = SnapshotState.Queued,
+            StatusMessage = null,
+            ModelVersion = null,
+            CreatedAt = now,
+            FinishedAt = null,
+            UpdatedAt = now,
+            ExpiresAt = now.AddMonths(3),
+        };
+    }
+
     // One page of 12 snapshots, newest first — the mix the real data showed. `now` is the
     // anchor so Created/Expires render stable relative dates across runs.
     private static IReadOnlyList<Snapshot> BuildRichPage()

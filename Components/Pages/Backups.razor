@@ -11,16 +11,21 @@
      • Response is the paginated `{ total, snapshots[] }` shape — the page shows the
        total so nothing is silently truncated.
 
-   Data comes from IBackupService (mock today; MT-20 swaps in the real Backups-v2 client
-   behind the same seam). The environment selector is populated from IEnvironmentService
-   (the MT-10 seam) — NO real API call is made in this slice. Restore (MT-17/18) and
-   Download (MT-16) are out of scope here: their row actions render DISABLED inside a
-   tooltip until those stories wire them. *@
+   MT-15 adds the "Create backup" button + active-job progress card (StatusDot pulse +
+   ProgressBar + phase text), driven through IJobEngine via BackupJobs; a terminal toast
+   states the fact. The action only ever targets the environment selected on screen.
+
+   Data comes from IBackupService (real Backups-v2 client via RealBackupService, behind the
+   MT-14 seam). The environment selector is populated from IEnvironmentService (the MT-10
+   seam). Restore (MT-17/18) and Download (MT-16) are out of scope here: their row actions
+   render DISABLED inside a tooltip until those stories wire them. *@
 @page "/backups"
 @using Mendix_Tools.Models
 @using Mendix_Tools.Services
+@using MendixTools.Core.Jobs
 @inject IBackupService BackupService
 @inject IEnvironmentService EnvService
+@inject BackupJobs Jobs
 @inject ShellState Shell
 @implements IDisposable
 
@@ -37,9 +42,54 @@
                 Value="@_selectedEnvId"
                 ValueChanged="OnEnvChangedAsync"
                 Style="width:280px"
-                Disabled="@(_envOptions.Count == 0)" />
+                Disabled="@(_envOptions.Count == 0 || HasActiveJob)" />
         <div class="mxt-backups__spacer"></div>
+        <Button Icon="plus"
+                Loading="_creating"
+                Disabled="@(_selectedEnvId is null || (HasActiveJob && !_creating))"
+                OnClick="CreateBackupAsync">Create backup</Button>
     </div>
+
+    @if (_activeJob is not null)
+    {
+        <Card Padding="15px 16px" class="@ActiveJobCardClass">
+            <div class="mxt-jobcard">
+                <StatusDot Status="@(_activeJob.State == JobState.Succeeded ? "success" : _activeJob.State == JobState.Failed ? "error" : "deploying")"
+                           Pulse="@(!_activeJob.IsTerminal)" Size="9" />
+                <div class="mxt-jobcard__body">
+                    <div class="mxt-jobcard__head">
+                        <span class="mxt-jobcard__phase">
+                            @(_activeJob.CurrentPhase ?? JobKindLabel(_activeJob.Kind))
+                            @if (_activeJobContext is not null)
+                            {
+                                <span class="mxt-jobcard__ctx">· @_activeJobContext</span>
+                            }
+                        </span>
+                        @if (!_activeJob.IsIndeterminate && _activeJob.Progress is { } p)
+                        {
+                            <span class="mxt-jobcard__pct">@(Math.Round(p, MidpointRounding.AwayFromZero))%</span>
+                        }
+                    </div>
+                    <ProgressBar Value="@(_activeJob.Progress ?? 0)"
+                                 Indeterminate="@_activeJob.IsIndeterminate"
+                                 Tone="@ActiveJobTone"
+                                 ShowValue="false" />
+                    @if (_activeJob.State == JobState.Failed && _activeJob.Message is not null)
+                    {
+                        <div class="mxt-jobcard__error">@_activeJob.Message</div>
+                    }
+                </div>
+                @if (_activeJob.IsTerminal)
+                {
+                    <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" OnClick="DismissJob">Dismiss</Button>
+                }
+                else
+                {
+                    <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" OnClick="CancelJob">Cancel</Button>
+                }
+            </div>
+        </Card>
+    }
 
     <Card Title="Cloud backups"
           Subtitle="Restore any snapshot into your local Postgres server"
@@ -102,6 +152,29 @@
     private IReadOnlyList<DataColumn<Snapshot>> _columns = [];
 
     private CancellationTokenSource _cts = new();
+
+    // Active-job (create / download) card state (MT-15/MT-16).
+    private Job? _activeJob;
+    private string? _activeJobContext;
+    private bool _creating;
+
+    private bool HasActiveJob => _activeJob is { IsTerminal: false };
+
+    private ProgressTone ActiveJobTone => _activeJob?.State switch
+    {
+        JobState.Succeeded => ProgressTone.Success,
+        JobState.Failed => ProgressTone.Danger,
+        _ => ProgressTone.Db,
+    };
+
+    // Splatted onto Card via @attributes; Blazor's last-write-wins on `class` would drop Card's
+    // own base class, so we include "mxt-card" here to keep the card surface.
+    private string ActiveJobCardClass => _activeJob?.State switch
+    {
+        JobState.Succeeded => "mxt-card mxt-jobcard-card mxt-jobcard-card--success",
+        JobState.Failed => "mxt-card mxt-jobcard-card mxt-jobcard-card--danger",
+        _ => "mxt-card mxt-jobcard-card mxt-jobcard-card--active",
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -183,6 +256,80 @@
         return Task.CompletedTask;
     }
 
+    // ── MT-15 create backup ────────────────────────────────────────────────────────────
+
+    private void CreateBackupAsync()
+    {
+        if (_selectedEnvId is null || !_envIndex.TryGetValue(_selectedEnvId, out var env) || HasActiveJob)
+        {
+            return;
+        }
+
+        _creating = true;
+        var job = Jobs.StartCreateBackup(env.ProjectId, _selectedEnvId, env.Label);
+        TrackJob(job, env.Label);
+    }
+
+    // ── Active-job card plumbing ─────────────────────────────────────────────────────────
+
+    private void TrackJob(Job job, string context)
+    {
+        DetachJob(); // only one card at a time
+        _activeJob = job;
+        _activeJobContext = context;
+        job.StateChanged += OnJobStateChanged;
+        job.ProgressChanged += OnJobProgressChanged;
+        StateHasChanged();
+    }
+
+    private void OnJobProgressChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private async void OnJobStateChanged(object? sender, JobStateChangedEventArgs e)
+    {
+        if (e.Current is JobState.Succeeded or JobState.Failed or JobState.Cancelled)
+        {
+            _creating = false;
+            // A completed create leaves a new snapshot in the list — refresh it (download does not).
+            if (e.Current == JobState.Succeeded && _activeJob?.Kind == "create-backup")
+            {
+                await LoadSnapshotsAsync();
+            }
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void DismissJob()
+    {
+        DetachJob();
+        _activeJob = null;
+        _activeJobContext = null;
+        _creating = false;
+    }
+
+    private void CancelJob()
+    {
+        if (_activeJob is { IsTerminal: false })
+        {
+            Jobs.Cancel(_activeJob.Id);
+        }
+    }
+
+    private void DetachJob()
+    {
+        if (_activeJob is not null)
+        {
+            _activeJob.StateChanged -= OnJobStateChanged;
+            _activeJob.ProgressChanged -= OnJobProgressChanged;
+        }
+    }
+
+    private static string JobKindLabel(string kind) => kind switch
+    {
+        "create-backup" => "Creating backup",
+        _ => kind,
+    };
+
     private async Task RefreshAsync()
     {
         if (_refreshing)
@@ -221,12 +368,12 @@
                                                      Loading="_refreshing"
                                                      OnClick="RefreshAsync">Refresh</Button>;
 
-    // Bulk-download affordance (MT-16). Shown only with a selection; DISABLED until wired.
+    // Bulk-download affordance (MT-16). Shown only with a selection; DISABLED until MT-16 wires it.
     private RenderFragment ListActions =>
     @<text>
         @if (_selected.Count > 0)
         {
-            <Tooltip Label="Available once wired to your account">
+            <Tooltip Label="Available once download is wired (MT-16)">
                 <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" Icon="download" Disabled>
                     Download @_selected.Count
                 </Button>
@@ -279,10 +426,12 @@
         @<div class="mxt-backups__actions">
             @if (snap.HasActions)
             {
-                <Tooltip Label="Available once wired to your account">
+                @* Restore stays disabled until MT-17/MT-18 wire the pg_restore flow. *@
+                <Tooltip Label="Available once restore is wired (MT-17)">
                     <Button Size="ControlSize.Sm" Variant="ButtonVariant.Subtle" Icon="database-backup" Disabled>Restore</Button>
                 </Tooltip>
-                <Tooltip Label="Available once wired to your account" Placement="TooltipPlacement.Left">
+                @* Download stays disabled until MT-16 wires the archive flow. *@
+                <Tooltip Label="Available once download is wired (MT-16)" Placement="TooltipPlacement.Left">
                     <IconButton Size="ControlSize.Sm" Icon="download" AriaLabel="Download" Disabled />
                 </Tooltip>
             }
@@ -333,6 +482,9 @@
 
     public void Dispose()
     {
+        // Detach the job-event subscriptions; the job itself keeps running in the singleton
+        // engine (survives navigation) and its terminal toast still fires via BackupJobs.
+        DetachJob();
         _cts.Cancel();
         _cts.Dispose();
     }

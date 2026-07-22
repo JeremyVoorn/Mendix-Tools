@@ -66,6 +66,11 @@
     </div>
 </div>
 
+@* The single app-root toast stack (MT-05). Moved here from Styleguide.razor by MT-15 so
+   toasts fired from real routed screens (create-backup / download / restore) render app-wide;
+   the singleton ToastService drives it. *@
+<ToastStack />
+
 @code {
     private IJSObjectReference? _module;
 

@@ -4,8 +4,8 @@ namespace Mendix_Tools.Services;
 
 // MT-20 — contracts for the shared Mendix Platform API client. This file is intentionally
 // MAUI/Blazor-free so it can be <Compile>-linked into the pure net10.0 test project (the
-// same pattern MT-08 uses for ThemeService) and reused unchanged by MT-14 (backups list)
-// and MT-16 (archive download).
+// same pattern MT-08 uses for ThemeService) and reused unchanged by MT-14 (backups list),
+// MT-15 (create snapshot) and MT-16 (archive download).
 //
 // Auth is the API-key generation confirmed by the MT-01 live run (D1): headers
 // `Mendix-Username` + `Mendix-ApiKey` on every request, read from the OS vault AT CALL TIME
@@ -81,9 +81,9 @@ public sealed class MendixApiResult<T>
 }
 
 /// <summary>
-/// The shared, low-level Mendix Platform API client. Typed GET helpers returning
-/// strongly-typed RAW DTOs that mirror the live JSON exactly (MT-01 spike). Higher layers
-/// (<see cref="RealEnvironmentService"/>, and later MT-14/MT-16) map these to app models.
+/// The shared, low-level Mendix Platform API client. Typed helpers returning strongly-typed RAW
+/// DTOs that mirror the live JSON exactly (MT-01 spike). Higher layers
+/// (<see cref="RealEnvironmentService"/>, <see cref="RealBackupService"/>) map these to app models.
 /// </summary>
 public interface IMendixApiClient
 {
@@ -99,6 +99,15 @@ public interface IMendixApiClient
     /// (newest first) — the newest-backup path asks for 1; MT-14's list asks for a page + uses <c>total</c>.
     /// </summary>
     Task<MendixApiResult<SnapshotsResponseRaw>> GetSnapshotsAsync(string projectId, string environmentId, int? limit = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// MT-15 — Backups API v2 <c>POST /api/v2/apps/{projectId}/environments/{environmentId}/snapshots</c>.
+    /// Body is <c>{ "comment": "..." }</c> (or <c>{}</c> when <paramref name="comment"/> is null/blank).
+    /// Returns the newly-created snapshot in its initial <c>queued</c>/<c>running</c> state; the
+    /// create job then polls <see cref="GetSnapshotsAsync"/> until it reaches <c>completed</c>/<c>failed</c>.
+    /// Reused by MT-17/X5 (backup-before-restore/deploy).
+    /// </summary>
+    Task<MendixApiResult<SnapshotRaw>> CreateSnapshotAsync(string projectId, string environmentId, string? comment = null, CancellationToken ct = default);
 }
 
 // ── RAW DTOs — property names/casing match the live payloads captured in the MT-01 spike ──

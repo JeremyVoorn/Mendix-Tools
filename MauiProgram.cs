@@ -84,6 +84,19 @@ public static class MauiProgram
         // MT-20 used for MockEnvironmentService.
         // ── end MT-14 Backups seam ──
 
+        // ── MT-15 Backups jobs (create snapshot) ──
+        // BackupJobs turns the "Create backup" click into an IJobEngine job (POST snapshot then
+        // poll GetSnapshots until completed/failed). It talks to the shared typed IMendixApiClient,
+        // the job engine, and a toast seam only. IUserNotifier decouples it from the Blazor
+        // ToastService so the same orchestration is unit-tested in MendixTools.Core.Tests with
+        // fakes (no live API call). Transient like the other cloud services so each resolution gets
+        // a fresh typed HttpClient from IHttpClientFactory; ToastUserNotifier wraps the singleton
+        // shell ToastStack (now rooted in MainLayout). MT-16 extends BackupJobs with the download flow.
+        builder.Services.AddSingleton<Mendix_Tools.Services.IUserNotifier,
+            Mendix_Tools.Services.ToastUserNotifier>();
+        builder.Services.AddTransient<Mendix_Tools.Services.BackupJobs>();
+        // ── end MT-15 ──
+
         // ── MT-11/12/13 Settings (DI) ──
         // Secrets (Mendix API key, Postgres password) live ONLY in the OS vault via
         // ISecretStore→SecureStorage; non-secret prefs (host/port/user/data-dir + the three

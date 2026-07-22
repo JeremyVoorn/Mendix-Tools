@@ -484,8 +484,9 @@
 
 </div>
 
-@* The single app-root toast stack (MT-05). Placed once; ToastService drives it. *@
-<ToastStack />
+@* ToastStack moved to MainLayout.razor (app root) by MT-15 so toasts fired from routed
+   screens render app-wide. The styleguide's Toast demo triggers the same singleton
+   ToastService, which now drives the shell-level stack. *@
 
 @code {
     private bool _dark;
