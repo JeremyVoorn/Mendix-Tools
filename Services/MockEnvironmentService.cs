@@ -37,8 +37,8 @@ public sealed class MockEnvironmentService : IEnvironmentService
         ["kwik-prod"] = TimeSpan.FromSeconds(20),// "just now"
     };
 
-    public Task<IReadOnlyList<MendixApp>> GetAppsAsync(CancellationToken ct = default)
-        => Task.FromResult(Apps);
+    public Task<EnvironmentsResult> GetAppsAsync(CancellationToken ct = default)
+        => Task.FromResult(EnvironmentsResult.Ok(Apps));
 
     public async Task<DateTimeOffset?> GetNewestBackupAsync(
         string projectId, string environmentId, CancellationToken ct = default)

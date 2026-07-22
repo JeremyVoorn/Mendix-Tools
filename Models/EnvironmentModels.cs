@@ -74,6 +74,49 @@ public sealed record MendixEnvironment
 }
 
 /// <summary>
+/// MT-20 — the outcome of an <see cref="Services.IEnvironmentService.GetAppsAsync"/> call.
+/// The MT-10 seam originally returned a bare list, which collapsed "no credentials",
+/// "credential rejected", and "offline" all to an empty grid. This distinguishes them so the
+/// dashboard can render an actionable state (connect / fix credentials / check connection)
+/// instead of a silent blank. Mirrors the typed <see cref="Services.MendixApiOutcome"/> the
+/// underlying client already produces, trimmed to what the dashboard needs to say.
+/// </summary>
+public enum EnvironmentsOutcome
+{
+    /// <summary>The call succeeded (the list may still be empty if the account has no apps).</summary>
+    Ok,
+
+    /// <summary>No credential is stored — prompt the user to connect in Settings › Credentials.</summary>
+    NoCredentials,
+
+    /// <summary>HTTP 401/403 — the stored credential was rejected or lacks API Rights.</summary>
+    CredentialsRejected,
+
+    /// <summary>Transport failure / timeout — the Mendix API could not be reached.</summary>
+    Offline,
+
+    /// <summary>Rate-limited or an unreadable/unexpected response — a generic, retryable failure.</summary>
+    Error,
+}
+
+/// <summary>
+/// Result of listing apps + environments (MT-20). <see cref="Apps"/> is non-null and empty
+/// for any non-<see cref="EnvironmentsOutcome.Ok"/> outcome, so the page can iterate it
+/// unconditionally and branch on <see cref="Outcome"/> for the state it renders.
+/// </summary>
+public sealed record EnvironmentsResult(EnvironmentsOutcome Outcome, IReadOnlyList<MendixApp> Apps)
+{
+    /// <summary>A successful result carrying the fetched apps.</summary>
+    public static EnvironmentsResult Ok(IReadOnlyList<MendixApp> apps) => new(EnvironmentsOutcome.Ok, apps);
+
+    /// <summary>A failed result: no apps, just the outcome the dashboard renders a state for.</summary>
+    public static EnvironmentsResult Failure(EnvironmentsOutcome outcome) => new(outcome, []);
+
+    /// <summary>True when the list rendered normally (stat row + grid path).</summary>
+    public bool IsSuccess => Outcome == EnvironmentsOutcome.Ok;
+}
+
+/// <summary>
 /// An app the credential can see (Deploy API v1 apps object). Carries its environments so
 /// the dashboard can group per app. <see cref="ProjectId"/> is the GUID the Backups API v2
 /// uses (not <see cref="AppId"/>), so the seam's backup lookup takes ProjectId + EnvironmentId.

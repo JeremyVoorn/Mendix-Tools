@@ -115,8 +115,12 @@
         _envIndex.Clear();
         var options = new List<SelectOption>();
 
-        var apps = await EnvService.GetAppsAsync(_cts.Token);
-        foreach (var app in apps)
+        // The env Select is populated from the same seam MT-20 wired. On any non-Ok outcome
+        // (no creds / rejected / offline) the apps list is empty → no environment is
+        // selectable → LoadSnapshotsAsync short-circuits to the calm empty state. The
+        // credential-rejected story is surfaced prominently on the Environments dashboard.
+        var envResult = await EnvService.GetAppsAsync(_cts.Token);
+        foreach (var app in envResult.Apps)
         {
             foreach (var env in app.Environments)
             {

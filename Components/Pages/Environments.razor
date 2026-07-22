@@ -12,7 +12,10 @@
 @page "/"
 @using Mendix_Tools.Models
 @using Mendix_Tools.Services
+@using MendixTools.Core.Metadata
 @inject IEnvironmentService EnvService
+@inject IMetadataStore Store
+@inject NavigationManager Nav
 @inject ShellState Shell
 @implements IDisposable
 
@@ -23,49 +26,78 @@
 <h1 class="mxt-visually-hidden">Environments</h1>
 
 <div class="mxt-env-page">
-    <div class="mxt-stat-row">
-        @StatTile("layout-grid", "Environments", _envCount.ToString(), null, "accent")
-        @StatTile("check-circle-2", "Running", _runningCount.ToString(), null, "success")
-        @* Local DBs + Storage are local-metadata figures (MT-08 store / X1) not available
-           on mock env data — static placeholders here, wired in a later story. *@
-        @StatTile("database", "Local DBs", "3", null, "db")
-        @StatTile("hard-drive", "Storage used", "12 GB", "local", "package")
-    </div>
-
-    <section>
-        <div class="mxt-env-section__head">
-            <div class="mxt-env-section__title">All environments</div>
-            <Tag Tone="TagTone.Accent" Icon="filter">@_licensedApps.Count apps</Tag>
-        </div>
-        <div class="mxt-env-grid">
-            @foreach (var (app, env) in _licensedEnvs)
-            {
-                @EnvCard(app, env)
-            }
-        </div>
-    </section>
-
-    @if (_sandboxEnvs.Count > 0)
+    @if (_loading)
     {
+        <Card>
+            <div class="mxt-env-state">
+                <span class="mxt-spinner" aria-hidden="true"></span>
+                <span>Loading environments…</span>
+            </div>
+        </Card>
+    }
+    else if (_outcome != EnvironmentsOutcome.Ok)
+    {
+        @StateCard()
+    }
+    else
+    {
+        <div class="mxt-stat-row">
+            @StatTile("layout-grid", "Environments", _envCount.ToString(), null, "accent")
+            @StatTile("check-circle-2", "Running", _runningCount.ToString(), null, "success")
+            @* Local DBs = real count of restored databases from the MT-08 metadata store.
+               The old "Storage used" placeholder tile was REMOVED (MT-20): no honest source
+               exists for local DB storage on a now-live dashboard — X1 owns that figure. *@
+            @StatTile("database", "Local DBs", _localDbCount.ToString(), null, "db")
+        </div>
+
         <section>
-            <button type="button" class="mxt-env-section__toggle"
-                    aria-expanded="@_showSandboxes.ToString().ToLowerInvariant()"
-                    @onclick="ToggleSandboxes">
-                <Icon Name="chevron-down" Size="16"
-                      Class="@(_showSandboxes ? "mxt-env-chevron mxt-env-chevron--open" : "mxt-env-chevron")" />
-                <span class="mxt-env-section__title">Personal sandboxes</span>
-                <span class="mxt-env-section__count">@_sandboxEnvs.Count</span>
-            </button>
-            @if (_showSandboxes)
+            <div class="mxt-env-section__head">
+                <div class="mxt-env-section__title">All environments</div>
+                <Tag Tone="TagTone.Accent" Icon="filter">@_licensedApps.Count apps</Tag>
+            </div>
+            @if (_licensedEnvs.Count == 0)
+            {
+                <Card>
+                    <div class="mxt-env-state">
+                        <span class="mxt-env-state__icon"><Icon Name="layout-grid" Size="26" /></span>
+                        <div class="mxt-env-state__title">No customer apps</div>
+                        <div class="mxt-env-state__body">This account can't see any licensed apps. Personal sandboxes, if any, are below.</div>
+                    </div>
+                </Card>
+            }
+            else
             {
                 <div class="mxt-env-grid">
-                    @foreach (var (app, env) in _sandboxEnvs)
+                    @foreach (var (app, env) in _licensedEnvs)
                     {
                         @EnvCard(app, env)
                     }
                 </div>
             }
         </section>
+
+        @if (_sandboxEnvs.Count > 0)
+        {
+            <section>
+                <button type="button" class="mxt-env-section__toggle"
+                        aria-expanded="@_showSandboxes.ToString().ToLowerInvariant()"
+                        @onclick="ToggleSandboxes">
+                    <Icon Name="chevron-down" Size="16"
+                          Class="@(_showSandboxes ? "mxt-env-chevron mxt-env-chevron--open" : "mxt-env-chevron")" />
+                    <span class="mxt-env-section__title">Personal sandboxes</span>
+                    <span class="mxt-env-section__count">@_sandboxEnvs.Count</span>
+                </button>
+                @if (_showSandboxes)
+                {
+                    <div class="mxt-env-grid">
+                        @foreach (var (app, env) in _sandboxEnvs)
+                        {
+                            @EnvCard(app, env)
+                        }
+                    </div>
+                }
+            </section>
+        }
     }
 </div>
 
@@ -77,9 +109,12 @@
 
     private int _envCount;
     private int _runningCount;
+    private int _localDbCount;
     private string? _subtitle;
+    private bool _loading = true;
     private bool _refreshing;
     private bool _showSandboxes;
+    private EnvironmentsOutcome _outcome = EnvironmentsOutcome.Ok;
 
     // Per-environment "last backup" cell state, keyed by EnvironmentId (vision N6 lazy fill).
     private readonly Dictionary<string, BackupCell> _backups = new();
@@ -96,7 +131,18 @@
 
     private async Task LoadAsync()
     {
-        _apps = await EnvService.GetAppsAsync(_cts.Token);
+        var result = await EnvService.GetAppsAsync(_cts.Token);
+        _outcome = result.Outcome;
+        _apps = result.Apps;
+        _loading = false;
+
+        // On a non-Ok outcome the page renders its actionable state (StateCard); skip the
+        // grouping/stat work and fire no per-env backup calls.
+        if (_outcome != EnvironmentsOutcome.Ok)
+        {
+            _subtitle = null;
+            return;
+        }
 
         _licensedApps = _apps.Where(a => !a.IsSandbox).ToList();
         _licensedEnvs = _licensedApps
@@ -110,6 +156,22 @@
         _envCount = allEnvs.Count;
         _runningCount = allEnvs.Count(e => e.Status == EnvironmentStatus.Running);
         _subtitle = $"{_licensedEnvs.Count} environments · {_licensedApps.Count} customer apps";
+
+        // "Local DBs" stat — real count of restored databases from the MT-08 metadata store.
+        try
+        {
+            var restored = await Store.GetRestoredDatabasesAsync(_cts.Token);
+            _localDbCount = restored.Count;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // The store is local and non-critical to the dashboard; a read failure just shows 0.
+            _localDbCount = 0;
+        }
 
         StartBackupLoads();
     }
@@ -148,8 +210,24 @@
         {
             // Superseded by a refresh — drop silently.
         }
+        catch
+        {
+            // MT-20 (inherited from MT-10): the real per-env backup call can now THROW
+            // (RealBackupService/the client surface 401/timeout/etc.). Never leave the cell
+            // hung on its spinner — mark it Loaded with no value so it renders "—" instead of
+            // an unobserved exception. (A dedicated per-cell error glyph is a later polish.)
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _backups[env.EnvironmentId] = new BackupCell(CellState.Loaded, null);
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
+    // TODO(MT-20b): honour the MT-12 30s auto-refresh preference — start a timer here that
+    // calls RefreshAsync on the interval and pauses while offline. Not built in this slice.
     private async Task RefreshAsync()
     {
         if (_refreshing)
@@ -187,6 +265,55 @@
                                                      OnClick="RefreshAsync">Refresh</Button>;
 
     private void ToggleSandboxes() => _showSandboxes = !_showSandboxes;
+
+    private void GoToCredentials() => Nav.NavigateTo("/settings");
+
+    // Actionable state for every non-Ok outcome — never a blank grid (MT-20 AC). Copy follows
+    // the voice rules: states what happened + what to do next, no "Are you sure"/exclamations.
+    private RenderFragment StateCard() =>
+    @<Card>
+        <div class="mxt-env-state" role="alert">
+            <span class="mxt-env-state__icon"><Icon Name="@StateIcon" Size="28" /></span>
+            <div class="mxt-env-state__title">@StateTitle</div>
+            <div class="mxt-env-state__body">@StateBody</div>
+            <div class="mxt-env-state__actions">
+                @if (_outcome is EnvironmentsOutcome.NoCredentials or EnvironmentsOutcome.CredentialsRejected)
+                {
+                    <Button Variant="ButtonVariant.Primary" Icon="key-round" OnClick="GoToCredentials">
+                        Open Settings › Credentials
+                    </Button>
+                }
+                @if (_outcome is EnvironmentsOutcome.CredentialsRejected or EnvironmentsOutcome.Offline or EnvironmentsOutcome.Error)
+                {
+                    <Button Variant="ButtonVariant.Secondary" Icon="refresh-cw" OnClick="RefreshAsync">Try again</Button>
+                }
+            </div>
+        </div>
+    </Card>;
+
+    private string StateIcon => _outcome switch
+    {
+        EnvironmentsOutcome.NoCredentials => "key-round",
+        EnvironmentsOutcome.CredentialsRejected => "alert-triangle",
+        EnvironmentsOutcome.Offline => "plug",
+        _ => "alert-triangle",
+    };
+
+    private string StateTitle => _outcome switch
+    {
+        EnvironmentsOutcome.NoCredentials => "Connect your Mendix account",
+        EnvironmentsOutcome.CredentialsRejected => "Credentials invalid",
+        EnvironmentsOutcome.Offline => "Can't reach Mendix",
+        _ => "Couldn't load your environments",
+    };
+
+    private string StateBody => _outcome switch
+    {
+        EnvironmentsOutcome.NoCredentials => "Add your Mendix username and API key in Settings › Credentials to see your apps and environments here.",
+        EnvironmentsOutcome.CredentialsRejected => "The stored credential was rejected. Check your username and API key in Settings › Credentials.",
+        EnvironmentsOutcome.Offline => "Showing nothing — the Mendix API couldn't be reached. Check your connection, then try again.",
+        _ => "Something went wrong loading your environments. Try again in a moment.",
+    };
 
     // Screen-local composite (the JSX Stat function). Icon tile tinted by tone-subtle;
     // mono value; optional " · sub" suffix on the label.

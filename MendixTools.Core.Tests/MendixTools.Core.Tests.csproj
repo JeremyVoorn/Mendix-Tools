@@ -41,6 +41,11 @@
         <Compile Include="..\Services\MendixApiContracts.cs" Link="AppServices\MendixApiContracts.cs" />
         <Compile Include="..\Services\MendixApiClient.cs" Link="AppServices\MendixApiClient.cs" />
         <Compile Include="..\Services\RealEnvironmentService.cs" Link="AppServices\RealEnvironmentService.cs" />
+        <!-- MT-14 — the Backups seam + RealBackupService (outcome→exception/result translation
+             and raw→model mapping) are MAUI/Blazor-free, so the real source is linked and
+             exercised with a fake IMendixApiClient — no live API call is ever made. -->
+        <Compile Include="..\Services\IBackupService.cs" Link="AppServices\IBackupService.cs" />
+        <Compile Include="..\Services\RealBackupService.cs" Link="AppServices\RealBackupService.cs" />
     </ItemGroup>
 
 </Project>

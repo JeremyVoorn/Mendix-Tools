@@ -22,8 +22,13 @@ public interface IEnvironmentService
     /// Lists every app the credential can see, each with its environments. Mirrors
     /// <c>GET /api/1/apps</c> (which mixes personal sandboxes with licensed apps) plus the
     /// per-app environments call. The dashboard groups sandboxes separately from this list.
+    ///
+    /// Returns a typed <see cref="EnvironmentsResult"/> (MT-20): the outcome distinguishes
+    /// success from "no credentials" / "credential rejected" / "offline" / generic error, so
+    /// the dashboard renders an actionable state rather than a bare empty grid. Never throws
+    /// for a credential/transport/parse failure — every such case maps to an outcome.
     /// </summary>
-    Task<IReadOnlyList<MendixApp>> GetAppsAsync(CancellationToken ct = default);
+    Task<EnvironmentsResult> GetAppsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Newest backup timestamp for one environment, or <c>null</c> when the environment has

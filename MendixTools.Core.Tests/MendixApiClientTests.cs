@@ -199,7 +199,10 @@ public sealed class MendixApiClientTests
     {
         var service = new RealEnvironmentService(RoutingClient());
 
-        var apps = await service.GetAppsAsync();
+        var result = await service.GetAppsAsync();
+        Assert.Equal(EnvironmentsOutcome.Ok, result.Outcome);
+        Assert.True(result.IsSuccess);
+        var apps = result.Apps;
 
         var licensed = Assert.Single(apps, a => a.AppId == "vanschiemagazijn");
         Assert.Equal("Van Schie Magazijn", licensed.Name);
@@ -222,7 +225,7 @@ public sealed class MendixApiClientTests
     {
         var service = new RealEnvironmentService(RoutingClient());
 
-        var apps = await service.GetAppsAsync();
+        var apps = (await service.GetAppsAsync()).Apps;
 
         var sandboxApp = Assert.Single(apps, a => a.AppId == "app1099");
         Assert.True(sandboxApp.IsSandbox);
@@ -267,27 +270,77 @@ public sealed class MendixApiClientTests
     }
 
     [Fact]
-    public async Task GetAppsAsync_CredentialRejected_ReturnsEmpty_NeverThrows()
+    public async Task GetAppsAsync_CredentialRejected_MapsToCredentialsRejected_NeverThrows()
     {
-        // The FIRST real call surfaces a 401 gracefully as an empty dashboard, not a crash.
+        // The FIRST real call surfaces a 401 gracefully as an actionable state, not a crash.
         var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
         var service = new RealEnvironmentService(NewClient(handler));
 
-        var apps = await service.GetAppsAsync();
+        var result = await service.GetAppsAsync();
 
-        Assert.Empty(apps);
+        Assert.Equal(EnvironmentsOutcome.CredentialsRejected, result.Outcome);
+        Assert.Empty(result.Apps);
     }
 
     [Fact]
-    public async Task GetAppsAsync_NoCredential_ReturnsEmpty_NeverThrows()
+    public async Task GetAppsAsync_Forbidden_MapsToCredentialsRejected()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+        var service = new RealEnvironmentService(NewClient(handler));
+
+        var result = await service.GetAppsAsync();
+
+        Assert.Equal(EnvironmentsOutcome.CredentialsRejected, result.Outcome);
+        Assert.Empty(result.Apps);
+    }
+
+    [Fact]
+    public async Task GetAppsAsync_NetworkFailure_MapsToOffline()
+    {
+        var handler = new FakeHandler(_ => throw new HttpRequestException("no route to host"));
+        var service = new RealEnvironmentService(NewClient(handler));
+
+        var result = await service.GetAppsAsync();
+
+        Assert.Equal(EnvironmentsOutcome.Offline, result.Outcome);
+        Assert.Empty(result.Apps);
+    }
+
+    [Fact]
+    public async Task GetAppsAsync_MalformedResponse_MapsToError()
+    {
+        var handler = new FakeHandler(_ => Json("{ not json"));
+        var service = new RealEnvironmentService(NewClient(handler));
+
+        var result = await service.GetAppsAsync();
+
+        Assert.Equal(EnvironmentsOutcome.Error, result.Outcome);
+        Assert.Empty(result.Apps);
+    }
+
+    [Fact]
+    public async Task GetAppsAsync_RateLimited_MapsToError()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+        var service = new RealEnvironmentService(NewClient(handler));
+
+        var result = await service.GetAppsAsync();
+
+        // 429 is not a connectivity fault → generic (retryable) Error, not Offline.
+        Assert.Equal(EnvironmentsOutcome.Error, result.Outcome);
+    }
+
+    [Fact]
+    public async Task GetAppsAsync_NoCredential_MapsToNoCredentials_NeverThrows()
     {
         var handler = new FakeHandler(_ => Json(AppsJson));
         var service = new RealEnvironmentService(
             new MendixApiClient(new HttpClient(handler), new FakeCredentialProvider(null)));
 
-        var apps = await service.GetAppsAsync();
+        var result = await service.GetAppsAsync();
 
-        Assert.Empty(apps);
+        Assert.Equal(EnvironmentsOutcome.NoCredentials, result.Outcome);
+        Assert.Empty(result.Apps);
         Assert.Empty(handler.Requests); // never hits the network without a credential.
     }
 

@@ -70,12 +70,18 @@ public static class MauiProgram
         // with: AddSingleton<IEnvironmentService, MockEnvironmentService>().
         // ── end MT-20 ──
 
-        // ── MT-14 Backups seam ──
-        // The Backups screen talks only to IBackupService; MT-20 swaps this one line for the
-        // real Backups API v2 client with no page changes. Mock carries no state, no secrets,
-        // and makes no HTTP call. (Merge note: MT-20 adds a DIFFERENT Services/ file here.)
-        builder.Services.AddSingleton<Mendix_Tools.Services.IBackupService,
-            Mendix_Tools.Services.MockBackupService>();
+        // ── MT-14 Backups seam (WIRED) ──
+        // The Backups screen talks only to IBackupService. RealBackupService is the wired
+        // implementation — it resolves the shared IMendixApiClient registered above (Backups
+        // API v2) and maps its typed outcomes to the exception/result contract the page's
+        // MapError expects. No base address / default headers; per-request auth read from the
+        // OS vault at call time; no secret in any thrown message.
+        builder.Services.AddTransient<Mendix_Tools.Services.IBackupService,
+            Mendix_Tools.Services.RealBackupService>();
+        // Offline / dev on mock data: MockBackupService stays in the codebase
+        // (registered-but-unused). To run the Backups screen on mock data, replace the line
+        // above with: AddSingleton<IBackupService, MockBackupService>() — same swap pattern
+        // MT-20 used for MockEnvironmentService.
         // ── end MT-14 Backups seam ──
 
         // ── MT-11/12/13 Settings (DI) ──

@@ -570,6 +570,18 @@ html,body{height:100%;}
 
 .mxt-env-page{display:flex;flex-direction:column;gap:20px;}
 
+/* Actionable state (MT-20): no-credentials / credential-rejected / offline / error /
+   loading — centered inside a Card, mirroring the Backups list state. */
+.mxt-env-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:44px 20px;text-align:center;
+  font-size:var(--text-sm);color:var(--text-secondary);
+}
+.mxt-env-state__icon{color:var(--text-tertiary);line-height:0;}
+.mxt-env-state__title{font-size:var(--text-md);font-weight:var(--fw-semibold);color:var(--text-primary);}
+.mxt-env-state__body{color:var(--text-tertiary);max-width:460px;line-height:1.5;}
+.mxt-env-state__actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:6px;}
+
 /* --- Stat row (JSX Stat) --- */
 .mxt-stat-row{display:flex;gap:14px;flex-wrap:wrap;}
 .mxt-stat{display:flex;align-items:center;gap:10px;}

@@ -7,11 +7,12 @@ namespace Mendix_Tools.Services;
 /// the SAME interface, so <c>Components/Pages/Environments.razor</c> needs no structural
 /// change. Backed by the shared <see cref="IMendixApiClient"/> (Deploy v1 + Backups v2).
 ///
-/// Graceful, never-crash contract (the seam has no error channel, and the app does no
-/// credential pre-validation — MT-13 accepted deviation):
-///   • no credential / 401 / 403 / offline / malformed → an EMPTY app list (the dashboard
-///     renders its calm empty state), NOT an exception. Genuine caller cancellation still
-///     propagates so the page's refresh-cancel path works.
+/// Graceful, never-crash contract (the app does no credential pre-validation — MT-13
+/// accepted deviation): every credential/transport/parse failure maps to a typed
+/// <see cref="EnvironmentsResult"/> outcome (NoCredentials / CredentialsRejected / Offline /
+/// Error), NOT an exception, so the dashboard renders an actionable state rather than a bare
+/// empty grid. Genuine caller cancellation still propagates so the page's refresh-cancel
+/// path works.
 ///   • sandbox environments keep null <c>MendixVersion</c>/<c>ModelVersion</c>/<c>RuntimeLayer</c>
 ///     (the card shows "—"); their backup lookup returns null (no backups).
 ///
@@ -24,13 +25,17 @@ public sealed class RealEnvironmentService : IEnvironmentService
 
     public RealEnvironmentService(IMendixApiClient api) => _api = api;
 
-    public async Task<IReadOnlyList<MendixApp>> GetAppsAsync(CancellationToken ct = default)
+    public async Task<EnvironmentsResult> GetAppsAsync(CancellationToken ct = default)
     {
+        // TODO(MT-20b): on Offline/Error, read the last-known apps+envs from the MT-08
+        // metadata-store cache and return them with a stale indicator instead of an empty
+        // Failure; on success, write the fetched state back to the cache. Out of this slice.
         var appsResult = await _api.GetAppsAsync(ct).ConfigureAwait(false);
         if (!appsResult.IsSuccess || appsResult.Value is null)
         {
-            // No creds / rejected / offline / unreadable — surface an empty dashboard, never throw.
-            return [];
+            // Map the client's typed outcome to the dashboard's state, never throw. The empty
+            // Value case (Success but null body) is treated as a generic Error too.
+            return EnvironmentsResult.Failure(MapOutcome(appsResult.Outcome));
         }
 
         var apps = new List<MendixApp>(appsResult.Value.Count);
@@ -57,8 +62,24 @@ public sealed class RealEnvironmentService : IEnvironmentService
             });
         }
 
-        return apps;
+        return EnvironmentsResult.Ok(apps);
     }
+
+    /// <summary>
+    /// Maps the shared client's <see cref="MendixApiOutcome"/> to the dashboard's
+    /// <see cref="EnvironmentsOutcome"/>. RateLimited folds into <see cref="EnvironmentsOutcome.Error"/>
+    /// (generic, retryable via Refresh) rather than Offline — a 429 is not a connectivity
+    /// problem, so blaming the connection would be dishonest; the Error state offers Refresh.
+    /// </summary>
+    private static EnvironmentsOutcome MapOutcome(MendixApiOutcome outcome) => outcome switch
+    {
+        MendixApiOutcome.NoCredentials => EnvironmentsOutcome.NoCredentials,
+        MendixApiOutcome.Unauthorized => EnvironmentsOutcome.CredentialsRejected,
+        MendixApiOutcome.Forbidden => EnvironmentsOutcome.CredentialsRejected,
+        MendixApiOutcome.NetworkError => EnvironmentsOutcome.Offline,
+        MendixApiOutcome.RateLimited => EnvironmentsOutcome.Error,
+        _ => EnvironmentsOutcome.Error, // InvalidResponse / Success-with-null-body
+    };
 
     public async Task<DateTimeOffset?> GetNewestBackupAsync(string projectId, string environmentId, CancellationToken ct = default)
     {
