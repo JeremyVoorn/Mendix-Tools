@@ -1,0 +1,92 @@
+@* Mendix Tools — Radio (MT-04). Faithful port of
+   docs/design-system/components/forms/Radio.jsx; styles in
+   wwwroot/css/components.css (.mxt-choice / .mxt-radio). One component per option;
+   group options by giving them the same Name and binding the same field with
+   @bind-SelectedValue (this Blazor-ifies the JSX checked/onChange pair). Native
+   radios share arrow-key navigation within a Name group; focus ring via
+   :focus-visible on the sibling circle.
+   Usage: <Radio Name="strat" Value="clean" Label="Clean restore" @bind-SelectedValue="_strategy" /> *@
+@namespace Mendix_Tools.Components.UI
+@using System.Linq.Expressions
+
+<label class="@Classes" for="@EffectiveId">
+    <span class="mxt-choice__ctrl">
+        <input id="@EffectiveId"
+               type="radio"
+               class="mxt-choice__input"
+               name="@Name"
+               value="@Value"
+               checked="@IsChecked"
+               disabled="@Disabled"
+               @onchange="HandleChangeAsync"
+               @attributes="AdditionalAttributes" />
+        <span class="@CircleClasses">
+            @if (IsChecked)
+            {
+                <span class="mxt-radio__dot"></span>
+            }
+        </span>
+    </span>
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="mxt-choice__text">
+            <span class="mxt-choice__label">@Label</span>
+            @if (!string.IsNullOrEmpty(Description))
+            {
+                <span class="mxt-choice__desc">@Description</span>
+            }
+        </span>
+    }
+</label>
+
+@code {
+    private readonly string _fallbackId = $"mxt-radio-{Guid.NewGuid():N}";
+
+    /// <summary>Radio group name (jsx <c>name</c>) — options with the same name form one group
+    /// and get native arrow-key navigation.</summary>
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+
+    /// <summary>This option's own value (jsx <c>value</c>).</summary>
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+
+    /// <summary>The group's selected value (two-way via <c>@bind-SelectedValue</c>);
+    /// this option renders checked when it equals <see cref="Value"/>.</summary>
+    [Parameter] public string? SelectedValue { get; set; }
+
+    [Parameter] public EventCallback<string?> SelectedValueChanged { get; set; }
+
+    /// <summary>Supplied automatically by <c>@bind-SelectedValue</c> inside an EditForm; unused otherwise.</summary>
+    [Parameter] public Expression<Func<string?>>? SelectedValueExpression { get; set; }
+
+    /// <summary>Label to the right of the circle (jsx <c>label</c>).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Secondary line under the label (jsx <c>description</c>).</summary>
+    [Parameter] public string? Description { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Explicit id for the input/label pair; auto-generated when omitted (jsx <c>id</c>).</summary>
+    [Parameter] public string? Id { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string EffectiveId => Id ?? _fallbackId;
+
+    private bool IsChecked => SelectedValue == Value;
+
+    private string Classes =>
+        "mxt-choice"
+        + (!string.IsNullOrEmpty(Description) ? " mxt-choice--described" : "")
+        + (Disabled ? " mxt-choice--disabled" : "");
+
+    private string CircleClasses =>
+        "mxt-radio__circle" + (IsChecked ? " mxt-radio__circle--on" : "");
+
+    private Task HandleChangeAsync(ChangeEventArgs e)
+    {
+        SelectedValue = Value;
+        return SelectedValueChanged.InvokeAsync(Value);
+    }
+}

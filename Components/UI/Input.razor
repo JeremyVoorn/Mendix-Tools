@@ -1,0 +1,122 @@
+@* Mendix Tools — Input (MT-04). Faithful port of
+   docs/design-system/components/forms/Input.jsx; styles in wwwroot/css/components.css
+   (.mxt-field / .mxt-input). The JSX focus useState hack becomes :focus-within on the
+   wrapper (accent border + --shadow-focus); error wins over focus, per the JSX.
+   jsx containerStyle → Class/Style (outer field div); unmatched attributes
+   (placeholder, autocomplete, maxlength, …) land on the inner <input>.
+   Usage: <Input Label="Host" Mono LeftIcon="server" @bind-Value="model.Host" /> *@
+@namespace Mendix_Tools.Components.UI
+@using System.Linq.Expressions
+
+<div class="@ContainerClasses" style="@Style">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="mxt-field__label" for="@EffectiveId">@Label</label>
+    }
+    <div class="@WrapperClasses">
+        @if (LeftSlot is not null || !string.IsNullOrEmpty(LeftIcon))
+        {
+            <span class="mxt-input__icon">
+                @if (LeftSlot is not null)
+                {
+                    @LeftSlot
+                }
+                else
+                {
+                    <Icon Name="@LeftIcon" Size="15" />
+                }
+            </span>
+        }
+        <input id="@EffectiveId"
+               class="@ControlClasses"
+               type="@Type"
+               placeholder="@Placeholder"
+               disabled="@Disabled"
+               value="@Value"
+               @oninput="HandleInputAsync"
+               @attributes="AdditionalAttributes" />
+        @if (RightSlot is not null)
+        {
+            <span class="mxt-input__slot">@RightSlot</span>
+        }
+    </div>
+    @if (!string.IsNullOrEmpty(Error) || !string.IsNullOrEmpty(Hint))
+    {
+        <span class="@MessageClasses">@(string.IsNullOrEmpty(Error) ? Hint : Error)</span>
+    }
+</div>
+
+@code {
+    private readonly string _fallbackId = $"mxt-input-{Guid.NewGuid():N}";
+
+    /// <summary>Bound text (two-way via <c>@bind-Value</c>; updates per keystroke, matching the React <c>onChange</c>).</summary>
+    [Parameter] public string? Value { get; set; }
+
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Supplied automatically by <c>@bind-Value</c> inside an EditForm; unused otherwise.</summary>
+    [Parameter] public Expression<Func<string?>>? ValueExpression { get; set; }
+
+    /// <summary>Field label above the input (jsx <c>label</c>).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Helper text under the input (jsx <c>hint</c>). Hidden while <see cref="Error"/> is set.</summary>
+    [Parameter] public string? Hint { get; set; }
+
+    /// <summary>Error text under the input (jsx <c>error</c>); also turns the border <c>--danger</c>.</summary>
+    [Parameter] public string? Error { get; set; }
+
+    /// <summary>Control size (jsx <c>size</c>, default md).</summary>
+    [Parameter] public ControlSize Size { get; set; } = ControlSize.Md;
+
+    /// <summary>Convenience leading icon as a bundled Lucide name, rendered at 15px in <c>--text-tertiary</c>
+    /// (the ui_kits screens pass 15px icons). For arbitrary content use <see cref="LeftSlot"/>.</summary>
+    [Parameter] public string? LeftIcon { get; set; }
+
+    /// <summary>Leading slot (jsx <c>leftIcon</c>). Wins over <see cref="LeftIcon"/> when both are set.</summary>
+    [Parameter] public RenderFragment? LeftSlot { get; set; }
+
+    /// <summary>Trailing slot (jsx <c>rightSlot</c>) — e.g. a reveal-password IconButton.</summary>
+    [Parameter] public RenderFragment? RightSlot { get; set; }
+
+    /// <summary>IBM Plex Mono for data: versions, hosts, ports, connection strings (jsx <c>mono</c>).</summary>
+    [Parameter] public bool Mono { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>HTML input type (default "text"; "password" for secrets).</summary>
+    [Parameter] public string Type { get; set; } = "text";
+
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>Explicit id for the input/label pair; auto-generated when omitted (jsx <c>id</c>).</summary>
+    [Parameter] public string? Id { get; set; }
+
+    /// <summary>Extra class(es) on the outer field container (jsx <c>containerStyle</c>).</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Inline style on the outer field container, e.g. <c>width:240px</c> (jsx <c>containerStyle</c>).</summary>
+    [Parameter] public string? Style { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string EffectiveId => Id ?? _fallbackId;
+
+    private string ContainerClasses => "mxt-field" + (string.IsNullOrEmpty(Class) ? "" : $" {Class}");
+
+    private string WrapperClasses =>
+        $"mxt-input mxt-input--{Size.ToString().ToLowerInvariant()}"
+        + (!string.IsNullOrEmpty(Error) ? " mxt-input--error" : "")
+        + (Disabled ? " mxt-input--disabled" : "");
+
+    private string ControlClasses => "mxt-input__control" + (Mono ? " mxt-input__control--mono" : "");
+
+    private string MessageClasses => "mxt-field__msg" + (!string.IsNullOrEmpty(Error) ? " mxt-field__msg--error" : "");
+
+    private Task HandleInputAsync(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString();
+        return ValueChanged.InvokeAsync(Value);
+    }
+}

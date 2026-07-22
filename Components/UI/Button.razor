@@ -1,0 +1,87 @@
+@* Mendix Tools — Button (MT-03). Faithful port of
+   docs/design-system/components/forms/Button.jsx; styles in wwwroot/css/components.css
+   (.mxt-btn). Per the JSX: while loading, the spinner replaces the icons but the
+   label stays; disabled/loading blocks clicks; press nudges 0.5px + scale 0.99.
+   Usage: <Button Variant="ButtonVariant.Secondary" Icon="refresh-cw" OnClick="...">Refresh</Button> *@
+@namespace Mendix_Tools.Components.UI
+
+<button type="@Type"
+        class="@Classes"
+        disabled="@IsDisabled"
+        @onclick="HandleClickAsync"
+        @attributes="AdditionalAttributes">
+    @if (Loading)
+    {
+        <span class="mxt-spinner" aria-hidden="true"></span>
+    }
+    else if (LeftIcon is not null)
+    {
+        @LeftIcon
+    }
+    else if (!string.IsNullOrEmpty(Icon))
+    {
+        <Icon Name="@Icon" Size="@IconPx" />
+    }
+    @if (ChildContent is not null)
+    {
+        <span>@ChildContent</span>
+    }
+    @if (!Loading && RightIcon is not null)
+    {
+        @RightIcon
+    }
+</button>
+
+@code {
+    /// <summary>Button label (jsx <c>children</c>). Optional — icon-only layouts should prefer IconButton.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Visual variant (jsx <c>variant</c>, default primary).</summary>
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Primary;
+
+    /// <summary>Control size (jsx <c>size</c>, default md).</summary>
+    [Parameter] public ControlSize Size { get; set; } = ControlSize.Md;
+
+    /// <summary>Convenience left icon as a bundled Lucide name (sized 13/15/16 px for sm/md/lg,
+    /// matching the ui_kits usage). For arbitrary content use <see cref="LeftIcon"/> instead.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>Left icon slot (jsx <c>leftIcon</c>). Wins over <see cref="Icon"/> when both are set.</summary>
+    [Parameter] public RenderFragment? LeftIcon { get; set; }
+
+    /// <summary>Right icon slot (jsx <c>rightIcon</c>).</summary>
+    [Parameter] public RenderFragment? RightIcon { get; set; }
+
+    /// <summary>Shows a spinner in place of the icons and blocks clicks (jsx <c>loading</c>).</summary>
+    [Parameter] public bool Loading { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Stretch to the container width (jsx <c>fullWidth</c>).</summary>
+    [Parameter] public bool FullWidth { get; set; }
+
+    /// <summary>HTML button type (jsx <c>type</c>, default "button").</summary>
+    [Parameter] public string Type { get; set; } = "button";
+
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool IsDisabled => Disabled || Loading;
+
+    private string Classes =>
+        $"mxt-btn mxt-btn--{Size.ToString().ToLowerInvariant()} mxt-btn--{Variant.ToString().ToLowerInvariant()}"
+        + (FullWidth ? " mxt-btn--full" : "");
+
+    // Inline icon sizes per the ui_kits screens: sm buttons carry 13–14px icons, md 15px.
+    private int IconPx => Size switch
+    {
+        ControlSize.Sm => 13,
+        ControlSize.Lg => 16,
+        _ => 15,
+    };
+
+    private Task HandleClickAsync(MouseEventArgs e)
+        => IsDisabled ? Task.CompletedTask : OnClick.InvokeAsync(e);
+}

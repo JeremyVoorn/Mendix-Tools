@@ -1,0 +1,31 @@
+@* Mendix Tools — Tooltip (MT-05). Faithful port of
+   docs/design-system/components/feedback/Tooltip.jsx; styles in
+   wwwroot/css/components.css (.mxt-tooltip*). Wraps a single child and shows
+   Label on hover/focus (CSS :hover + :focus-within — no JS, no portal), fading in
+   over --duration-fast. Placement top (default) | bottom | left | right.
+   Usage:
+     <Tooltip Label="Available after cloud connection">
+         <IconButton Icon="download" AriaLabel="Download" Disabled />
+     </Tooltip> *@
+@namespace Mendix_Tools.Components.UI
+
+<span class="mxt-tooltip" @attributes="AdditionalAttributes">
+    @ChildContent
+    <span class="mxt-tooltip__bubble mxt-tooltip__bubble--@PlacementClass" role="tooltip">@Label</span>
+</span>
+
+@code {
+    /// <summary>Hover/focus hint text (jsx <c>label</c>).</summary>
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+
+    /// <summary>Bubble placement relative to the child (jsx <c>placement</c>, default top).</summary>
+    [Parameter] public TooltipPlacement Placement { get; set; } = TooltipPlacement.Top;
+
+    /// <summary>The element the tooltip describes (jsx <c>children</c>).</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string PlacementClass => Placement.ToString().ToLowerInvariant();
+}

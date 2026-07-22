@@ -1,0 +1,54 @@
+﻿# Local agent definitions (project tooling, kept out of the repo)
+/.claude/agents/idea.md
+/.claude/agents/ontwikkelaar.md
+/.claude/agents/README.md
+/.claude/agents/scrum-master.md
+/.claude/agents/tester-reviewer.md
+/.claude/agents/visionair.md
+
+# NOTE: docs/ (design system, vision, backlog, spikes) IS tracked — it is the project spec.
+
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# .NET
+*.user
+*.userosscache
+*.suo
+project.lock.json
+artifacts/
+
+# MAUI / mobile build artifacts
+*.aab
+*.apk
+*.ipa
+*.appx
+*.appxbundle
+*.msix
+
+# NuGet
+*.nupkg
+*.snupkg
+
+# JetBrains Rider / ReSharper
+.idea/
+*.sln.iml
+_ReSharper*/
+*.DotSettings.user
+
+# Visual Studio
+.vs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit credentials or spike run output
+.env
+*.env
+secrets.json
+docs/spikes/*.local.*

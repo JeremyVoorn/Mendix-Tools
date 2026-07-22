@@ -1,0 +1,41 @@
+@* Mendix Tools — Badge (MT-03). Faithful port of
+   docs/design-system/components/display/Badge.jsx; styles in
+   wwwroot/css/components.css (.mxt-badge). Compact status/label pill for
+   environment state, deploy results, version tags. `Dot` prepends a 6px
+   currentColor dot. Usage: <Badge Tone="BadgeTone.Success" Dot>Running</Badge> *@
+@namespace Mendix_Tools.Components.UI
+
+<span class="@Classes" @attributes="AdditionalAttributes">
+    @if (Dot)
+    {
+        <span class="mxt-badge__dot" aria-hidden="true"></span>
+    }
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <Icon Name="@Icon" Size="12" />
+    }
+    @ChildContent
+</span>
+
+@code {
+    /// <summary>Badge label (jsx <c>children</c>).</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Colour tone (jsx <c>tone</c>, default neutral).</summary>
+    [Parameter] public BadgeTone Tone { get; set; } = BadgeTone.Neutral;
+
+    /// <summary>Pill size (jsx <c>size</c>, default md — 22px; sm — 18px).</summary>
+    [Parameter] public BadgeSize Size { get; set; } = BadgeSize.Md;
+
+    /// <summary>Prepend a 6px status dot in the tone colour (jsx <c>dot</c>).</summary>
+    [Parameter] public bool Dot { get; set; }
+
+    /// <summary>Optional leading Lucide icon name (jsx <c>icon</c>), rendered at 12px.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string Classes =>
+        $"mxt-badge mxt-badge--{Size.ToString().ToLowerInvariant()} mxt-badge--{Tone.ToString().ToLowerInvariant()}";
+}

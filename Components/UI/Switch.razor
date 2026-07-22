@@ -1,0 +1,82 @@
+@* Mendix Tools — Switch (MT-04). Faithful port of
+   docs/design-system/components/forms/Switch.jsx; styles in
+   wwwroot/css/components.css (.mxt-choice / .mxt-switch). Instant-effect on/off
+   toggle for settings (auto-refresh, keep-file, checksum) — prefer over Checkbox
+   for immediate-effect options, per the JSX doc. Pill track + sliding knob over a
+   visually-hidden native checkbox with role="switch"; space toggles natively,
+   focus ring via :focus-visible on the sibling track.
+   Usage: <Switch Label="Every 30 seconds" @bind-Checked="_autoRefresh" /> *@
+@namespace Mendix_Tools.Components.UI
+@using System.Linq.Expressions
+
+<label class="@Classes" for="@EffectiveId">
+    <span class="mxt-choice__ctrl">
+        <input id="@EffectiveId"
+               type="checkbox"
+               role="switch"
+               class="mxt-choice__input"
+               checked="@Checked"
+               disabled="@Disabled"
+               @onchange="HandleChangeAsync"
+               @attributes="AdditionalAttributes" />
+        <span class="@TrackClasses">
+            <span class="mxt-switch__knob"></span>
+        </span>
+    </span>
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="mxt-choice__text">
+            <span class="mxt-choice__label">@Label</span>
+            @if (!string.IsNullOrEmpty(Description))
+            {
+                <span class="mxt-choice__desc">@Description</span>
+            }
+        </span>
+    }
+</label>
+
+@code {
+    private readonly string _fallbackId = $"mxt-switch-{Guid.NewGuid():N}";
+
+    /// <summary>On/off state (two-way via <c>@bind-Checked</c>; jsx <c>checked</c>).</summary>
+    [Parameter] public bool Checked { get; set; }
+
+    [Parameter] public EventCallback<bool> CheckedChanged { get; set; }
+
+    /// <summary>Supplied automatically by <c>@bind-Checked</c> inside an EditForm; unused otherwise.</summary>
+    [Parameter] public Expression<Func<bool>>? CheckedExpression { get; set; }
+
+    /// <summary>Label to the right of the track (jsx <c>label</c>).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Secondary line under the label (jsx <c>description</c>).</summary>
+    [Parameter] public string? Description { get; set; }
+
+    /// <summary>Track size (jsx <c>size</c>, default md).</summary>
+    [Parameter] public SwitchSize Size { get; set; } = SwitchSize.Md;
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Explicit id for the input/label pair; auto-generated when omitted (jsx <c>id</c>).</summary>
+    [Parameter] public string? Id { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string EffectiveId => Id ?? _fallbackId;
+
+    private string Classes =>
+        "mxt-choice"
+        + (!string.IsNullOrEmpty(Description) ? " mxt-choice--described" : "")
+        + (Disabled ? " mxt-choice--disabled" : "");
+
+    private string TrackClasses =>
+        $"mxt-switch__track mxt-switch__track--{Size.ToString().ToLowerInvariant()}"
+        + (Checked ? " mxt-switch__track--on" : "");
+
+    private Task HandleChangeAsync(ChangeEventArgs e)
+    {
+        Checked = e.Value is true;
+        return CheckedChanged.InvokeAsync(Checked);
+    }
+}

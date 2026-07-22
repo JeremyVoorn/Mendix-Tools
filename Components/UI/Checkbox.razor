@@ -1,0 +1,88 @@
+@* Mendix Tools — Checkbox (MT-04). Faithful port of
+   docs/design-system/components/forms/Checkbox.jsx; styles in
+   wwwroot/css/components.css (.mxt-choice / .mxt-check). The box is CSS-rendered
+   over a visually-hidden native input (keyboard/space works natively; focus ring
+   via :focus-visible on the sibling box). Indeterminate renders the Lucide minus
+   itself, per the JSX — no JS interop; aria-checked="mixed" carries the semantics.
+   Usage: <Checkbox Label="Keep the downloaded .backup file" @bind-Checked="_keep" /> *@
+@namespace Mendix_Tools.Components.UI
+@using System.Linq.Expressions
+
+<label class="@Classes" for="@EffectiveId">
+    <span class="mxt-choice__ctrl">
+        <input id="@EffectiveId"
+               type="checkbox"
+               class="mxt-choice__input"
+               checked="@Checked"
+               disabled="@Disabled"
+               aria-checked="@(Indeterminate ? "mixed" : null)"
+               @onchange="HandleChangeAsync"
+               @attributes="AdditionalAttributes" />
+        <span class="@BoxClasses">
+            @if (Indeterminate)
+            {
+                <Icon Name="minus" Size="13" />
+            }
+            else if (Checked)
+            {
+                <Icon Name="check" Size="13" />
+            }
+        </span>
+    </span>
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="mxt-choice__text">
+            <span class="mxt-choice__label">@Label</span>
+            @if (!string.IsNullOrEmpty(Description))
+            {
+                <span class="mxt-choice__desc">@Description</span>
+            }
+        </span>
+    }
+</label>
+
+@code {
+    private readonly string _fallbackId = $"mxt-check-{Guid.NewGuid():N}";
+
+    /// <summary>Checked state (two-way via <c>@bind-Checked</c>; jsx <c>checked</c>).</summary>
+    [Parameter] public bool Checked { get; set; }
+
+    [Parameter] public EventCallback<bool> CheckedChanged { get; set; }
+
+    /// <summary>Supplied automatically by <c>@bind-Checked</c> inside an EditForm; unused otherwise.</summary>
+    [Parameter] public Expression<Func<bool>>? CheckedExpression { get; set; }
+
+    /// <summary>"Select all" mixed state (jsx <c>indeterminate</c>) — renders the minus glyph and
+    /// overrides the check. The owner clears it on the next change callback.</summary>
+    [Parameter] public bool Indeterminate { get; set; }
+
+    /// <summary>Label to the right of the box (jsx <c>label</c>).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Secondary line under the label (jsx <c>description</c>).</summary>
+    [Parameter] public string? Description { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Explicit id for the input/label pair; auto-generated when omitted (jsx <c>id</c>).</summary>
+    [Parameter] public string? Id { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string EffectiveId => Id ?? _fallbackId;
+
+    private string Classes =>
+        "mxt-choice"
+        + (!string.IsNullOrEmpty(Description) ? " mxt-choice--described" : "")
+        + (Disabled ? " mxt-choice--disabled" : "");
+
+    private string BoxClasses =>
+        "mxt-check__box" + (Checked || Indeterminate ? " mxt-check__box--on" : "");
+
+    private Task HandleChangeAsync(ChangeEventArgs e)
+    {
+        Checked = e.Value is true;
+        return CheckedChanged.InvokeAsync(Checked);
+    }
+}

@@ -1,0 +1,100 @@
+@* Mendix Tools — Select (MT-04). Faithful port of
+   docs/design-system/components/forms/Select.jsx: a styled native <select> matching
+   Input, with a chevron affordance. Styles in wwwroot/css/components.css (.mxt-select).
+   Options come from the typed Options list ([{value,label}] in the JSX) or from raw
+   <option> child content — not both. jsx containerStyle → Class/Style.
+   Usage: <Select Label="Source environment" Options="_envs" @bind-Value="_env" /> *@
+@namespace Mendix_Tools.Components.UI
+@using System.Linq.Expressions
+
+<div class="@ContainerClasses" style="@Style">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="mxt-field__label" for="@EffectiveId">@Label</label>
+    }
+    <div class="mxt-select">
+        <select id="@EffectiveId"
+                class="@ControlClasses"
+                disabled="@Disabled"
+                value="@Value"
+                @onchange="HandleChangeAsync"
+                @attributes="AdditionalAttributes">
+            @if (Options is not null)
+            {
+                @foreach (var option in Options)
+                {
+                    <option @key="option.Value" value="@option.Value">@option.Label</option>
+                }
+            }
+            else
+            {
+                @ChildContent
+            }
+        </select>
+        <span class="mxt-select__chevron"><Icon Name="chevron-down" Size="16" /></span>
+    </div>
+    @if (!string.IsNullOrEmpty(Error) || !string.IsNullOrEmpty(Hint))
+    {
+        <span class="@MessageClasses">@(string.IsNullOrEmpty(Error) ? Hint : Error)</span>
+    }
+</div>
+
+@code {
+    private readonly string _fallbackId = $"mxt-select-{Guid.NewGuid():N}";
+
+    /// <summary>Selected option value (two-way via <c>@bind-Value</c>).</summary>
+    [Parameter] public string? Value { get; set; }
+
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Supplied automatically by <c>@bind-Value</c> inside an EditForm; unused otherwise.</summary>
+    [Parameter] public Expression<Func<string?>>? ValueExpression { get; set; }
+
+    /// <summary>Typed options (jsx <c>options</c>). When set, <see cref="ChildContent"/> is ignored, per the JSX.</summary>
+    [Parameter] public IReadOnlyList<SelectOption>? Options { get; set; }
+
+    /// <summary>Raw <c>&lt;option&gt;</c> elements (jsx <c>children</c>) — the escape hatch for optgroups etc.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Field label above the select (jsx <c>label</c>).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Helper text under the select (jsx <c>hint</c>). Hidden while <see cref="Error"/> is set.</summary>
+    [Parameter] public string? Hint { get; set; }
+
+    /// <summary>Error text under the select (jsx <c>error</c>); also turns the border <c>--danger</c>.</summary>
+    [Parameter] public string? Error { get; set; }
+
+    /// <summary>Control size (jsx <c>size</c>, default md).</summary>
+    [Parameter] public ControlSize Size { get; set; } = ControlSize.Md;
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Explicit id for the select/label pair; auto-generated when omitted (jsx <c>id</c>).</summary>
+    [Parameter] public string? Id { get; set; }
+
+    /// <summary>Extra class(es) on the outer field container (jsx <c>containerStyle</c>).</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Inline style on the outer field container, e.g. <c>width:240px</c> (jsx <c>containerStyle</c>).</summary>
+    [Parameter] public string? Style { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string EffectiveId => Id ?? _fallbackId;
+
+    private string ContainerClasses => "mxt-field" + (string.IsNullOrEmpty(Class) ? "" : $" {Class}");
+
+    private string ControlClasses =>
+        $"mxt-select__control mxt-select__control--{Size.ToString().ToLowerInvariant()}"
+        + (!string.IsNullOrEmpty(Error) ? " mxt-select__control--error" : "");
+
+    private string MessageClasses => "mxt-field__msg" + (!string.IsNullOrEmpty(Error) ? " mxt-field__msg--error" : "");
+
+    private Task HandleChangeAsync(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString();
+        return ValueChanged.InvokeAsync(Value);
+    }
+}

@@ -1,0 +1,22 @@
+/* Mendix Tools — base element defaults. Kept minimal so consumers inherit sane
+   typography/color without a reset library. Applied to the whole document. */
+*,*::before,*::after{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;}
+body{
+  margin:0;
+  font-family:var(--font-sans);
+  font-size:var(--text-base);
+  line-height:var(--lh-normal);
+  color:var(--text-primary);
+  background:var(--bg-app);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+a{color:var(--text-link);text-decoration:none;}
+a:hover{text-decoration:underline;}
+code,kbd,samp,pre{font-family:var(--font-mono);font-size:0.92em;}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;}
+::selection{background:var(--accent-subtle);color:var(--accent-text);}
+hr{border:0;border-top:var(--border-w) solid var(--border);margin:var(--space-4) 0;}
+h1,h2,h3,h4,h5,h6{margin:0;font-weight:var(--fw-semibold);line-height:var(--lh-tight);letter-spacing:var(--tracking-tight);}
+p{margin:0;}

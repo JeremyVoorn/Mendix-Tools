@@ -1,0 +1,29 @@
+@* Mendix Tools — PageHeader (MT-07). Renders nothing; declares this page's topbar
+   title/subtitle/actions into ShellState, which MainLayout renders in the fixed 52px
+   topbar. Drop one at the top of each routable page.
+
+   Copy-paste for a screen story (MT-10+):
+     <PageHeader Title="Environments" Subtitle="6 environments · 3 customers">
+         <Actions>
+             <Button Icon="refresh-cw" OnClick="Refresh">Refresh</Button>
+         </Actions>
+     </PageHeader>
+
+   Title-only is fine: <PageHeader Title="Settings" /> *@
+@namespace Mendix_Tools.Components.Layout
+@inject ShellState Shell
+
+@code {
+    /// <summary>The topbar screen title (jsx AppShell <c>title</c>).</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    /// <summary>Optional mono subtitle line under the title (jsx <c>subtitle</c>).</summary>
+    [Parameter] public string? Subtitle { get; set; }
+
+    /// <summary>Right-aligned topbar actions slot (jsx <c>actions</c>).</summary>
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    // Set once per page instance; a fresh PageHeader is created on every navigation,
+    // so there is no render loop (see ShellState remarks).
+    protected override void OnInitialized() => Shell.SetHeader(Title, Subtitle, Actions);
+}

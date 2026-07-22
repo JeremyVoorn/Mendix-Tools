@@ -1,0 +1,14 @@
+/* Mendix Tools — webfonts. IBM Plex Sans + IBM Plex Mono, served from Google Fonts (gstatic).
+   NOTE: these are CDN-hosted substitutes; swap the src URLs for self-hosted binaries if you need offline/bundled fonts. */
+
+/* IBM Plex Sans */
+@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexsans/v22/zYX9KVElMYYaJe8bpLHnCwDKtdbUFI5NadY.woff2) format('woff2');}
+@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexsans/v22/zYX9KVElMYYaJe8bpLHnCwDKtbrUFI5NadY.woff2) format('woff2');}
+@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexsans/v22/zYX9KVElMYYaJe8bpLHnCwDKtZLQFI5NadY.woff2) format('woff2');}
+@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexsans/v22/zYX9KVElMYYaJe8bpLHnCwDKtabRFI5NadY.woff2) format('woff2');}
+@font-face{font-family:'IBM Plex Sans';font-style:italic;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexsans/v22/zYXgKVElMYYaJe8bpLHnCwDKjR7_MIZmdd_qFmo.woff2) format('woff2');}
+
+/* IBM Plex Mono */
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexmono/v19/-F63fjptAgt5VM-kVkqdyU8n1i8q131nj-otFQ.woff2) format('woff2');}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexmono/v19/-F65fjptAgt5VM-kVkqdyU8n1ioSg1n33mfrpsg.woff2) format('woff2');}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url(https://fonts.gstatic.com/s/ibmplexmono/v19/-F65fjptAgt5VM-kVkqdyU8n1ioAgFn33mfrpsg.woff2) format('woff2');}

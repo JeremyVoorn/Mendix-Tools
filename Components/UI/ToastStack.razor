@@ -1,0 +1,24 @@
+@* Mendix Tools — ToastStack (MT-05). The fixed stack container for transient result
+   notifications (readme feedback group). Place ONCE near the app root; it subscribes to
+   ToastService and renders each active toast, newest at the bottom, sliding in from the
+   right. Styles in wwwroot/css/components.css (.mxt-toaststack). *@
+@namespace Mendix_Tools.Components.UI
+@implements IDisposable
+@inject ToastService Toasts
+
+<div class="mxt-toaststack" aria-live="polite" aria-relevant="additions">
+    @foreach (var toast in Toasts.Toasts)
+    {
+        <div class="mxt-toaststack__item" @key="toast.Id">
+            <Toast Message="toast" OnDismiss="() => Toasts.Dismiss(toast.Id)" />
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Toasts.OnChange += HandleChange;
+
+    private void HandleChange() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Toasts.OnChange -= HandleChange;
+}

@@ -1,0 +1,140 @@
+@* Mendix Tools — LogViewer (MT-06). Faithful port of
+   docs/design-system/components/data/LogViewer.jsx; styles in
+   wwwroot/css/components.css (.mxt-log*). Dark --code-bg surface in BOTH themes,
+   monospace, per-level colour. Auto-follows the tail while pinned to the bottom and
+   stops following once the user scrolls up (scroll detection via
+   wwwroot/js/mxt-interop.js). Renders only the last MaxRenderedLines to stay smooth
+   with 5,000+ lines (capped render window per the AC).
+   Usage:
+     <LogViewer Lines="_logLines" Title="restore · acme_local" /> *@
+@namespace Mendix_Tools.Components.UI
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+
+<div class="mxt-log" style="@Style" @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(Title))
+    {
+        <div class="mxt-log__titlebar">
+            <Icon Name="terminal" Size="14" />
+            <span class="mxt-log__title">@Title</span>
+        </div>
+    }
+    <div class="mxt-log__scroll" style="height:@(Height)px;" @ref="_scrollRef">
+        @if (Truncated)
+        {
+            <div class="mxt-log__line mxt-log__notice">… @( Lines.Count - MaxRenderedLines ) earlier lines not shown</div>
+        }
+        @foreach (var line in Window)
+        {
+            <div class="mxt-log__line">
+                @if (ShowTimestamps && !string.IsNullOrEmpty(line.Time))
+                {
+                    <span class="mxt-log__time">@line.Time</span>
+                }
+                <span class="mxt-log__level mxt-log__level--@LevelClass(line.Level)">@LevelTag(line.Level)</span>
+                <span class="mxt-log__text mxt-log__text--@LevelClass(line.Level)">@line.Text</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private ElementReference _scrollRef;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<LogViewer>? _self;
+    private bool _following = true;
+    private int _lastCount = -1;
+
+    /// <summary>The console lines (jsx <c>lines</c>).</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<LogLine> Lines { get; set; } = [];
+
+    /// <summary>Start following the tail (jsx <c>follow</c>, default true). User scroll-up stops it.</summary>
+    [Parameter] public bool Follow { get; set; } = true;
+
+    /// <summary>Scroll-area height in px (jsx <c>height</c>, default 260).</summary>
+    [Parameter] public int Height { get; set; } = 260;
+
+    /// <summary>Optional titlebar label (jsx <c>title</c>).</summary>
+    [Parameter] public string? Title { get; set; }
+
+    /// <summary>Show per-line timestamps (jsx <c>showTimestamps</c>, default true).</summary>
+    [Parameter] public bool ShowTimestamps { get; set; } = true;
+
+    /// <summary>Cap on how many trailing lines are rendered (keeps 5,000+ line logs smooth).</summary>
+    [Parameter] public int MaxRenderedLines { get; set; } = 2000;
+
+    /// <summary>Inline style passthrough (jsx <c>style</c>).</summary>
+    [Parameter] public string? Style { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool Truncated => Lines.Count > MaxRenderedLines;
+
+    private IEnumerable<LogLine> Window =>
+        Truncated ? Lines.Skip(Lines.Count - MaxRenderedLines) : Lines;
+
+    protected override void OnParametersSet()
+    {
+        // Follow is the initial intent; the user's scroll position takes over after that.
+        if (_lastCount < 0)
+        {
+            _following = Follow;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await Js.InvokeAsync<IJSObjectReference>("import", "./js/mxt-interop.js");
+            _self = DotNetObjectReference.Create(this);
+            await _module.InvokeVoidAsync("observeScroll", _scrollRef, _self);
+        }
+
+        // On new lines, if we're pinned to the bottom, follow the tail.
+        if (_module is not null && _following && Lines.Count != _lastCount)
+        {
+            await _module.InvokeVoidAsync("scrollToBottom", _scrollRef);
+        }
+        _lastCount = Lines.Count;
+    }
+
+    /// <summary>Called from JS when the user scrolls: true when pinned to the bottom.</summary>
+    [JSInvokable]
+    public void SetFollowing(bool atBottom)
+    {
+        if (_following != atBottom)
+        {
+            _following = atBottom;
+        }
+    }
+
+    private static string LevelClass(LogLevel level) => level.ToString().ToLowerInvariant();
+
+    // Matches the JSX: the level tag is blank for info; other levels show uppercased.
+    private static string LevelTag(LogLevel level) => level switch
+    {
+        LogLevel.Info => string.Empty,
+        LogLevel.Warn => "WARN",
+        LogLevel.Success => "SUCCESS",
+        LogLevel.Error => "ERROR",
+        LogLevel.Debug => "DEBUG",
+        LogLevel.Cmd => "CMD",
+        _ => string.Empty,
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_module is not null)
+            {
+                await _module.InvokeVoidAsync("disposeScroll", _scrollRef);
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { /* webview tearing down */ }
+        _self?.Dispose();
+    }
+}

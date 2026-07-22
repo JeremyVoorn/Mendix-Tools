@@ -1,0 +1,57 @@
+/* Mendix Tools — Blazor framework plumbing only (MT-02).
+   All template styling (Bootstrap, Helvetica stack, .btn overrides) has been removed;
+   visual styling comes exclusively from css/styles.css (design tokens).
+   This file keeps the pieces the Blazor WebView itself needs. */
+
+/* Unhandled-error banner: must stay hidden until Blazor toggles it. */
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    box-sizing: border-box;
+    z-index: var(--z-toast);
+    padding: var(--space-3) var(--space-5);
+    background: var(--danger-subtle);
+    color: var(--danger-text);
+    border-top: var(--border-w) solid var(--danger);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: var(--space-3);
+    top: var(--space-2);
+}
+
+.blazor-error-boundary {
+    padding: var(--space-4);
+    background: var(--danger-subtle);
+    color: var(--danger-text);
+    border: var(--border-w) solid var(--danger);
+    border-radius: var(--radius-lg);
+}
+
+.blazor-error-boundary::after {
+    content: "An error has occurred."
+}
+
+/* iOS/Android safe area shim from the MAUI template; inert on Windows. */
+.status-bar-safe-area {
+    display: none;
+}
+
+@supports (-webkit-touch-callout: none) {
+    .status-bar-safe-area {
+        display: flex;
+        position: sticky;
+        top: 0;
+        height: env(safe-area-inset-top);
+        background-color: var(--bg-app);
+        width: 100%;
+        z-index: var(--z-sticky);
+    }
+}

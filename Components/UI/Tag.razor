@@ -1,0 +1,49 @@
+@* Mendix Tools — Tag (MT-03). Faithful port of
+   docs/design-system/components/display/Tag.jsx; styles in
+   wwwroot/css/components.css (.mxt-tag). Filter/selection chip: set OnRemove to
+   show the dismiss ✕ (12px Lucide "x"), `Mono` for identifiers.
+   Usage: <Tag Mono OnRemove="...">acme_local</Tag> *@
+@namespace Mendix_Tools.Components.UI
+
+<span class="@Classes" @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <Icon Name="@Icon" Size="12" />
+    }
+    @ChildContent
+    @if (OnRemove.HasDelegate)
+    {
+        <button type="button"
+                class="mxt-tag__remove"
+                aria-label="Remove"
+                @onclick="OnRemove"
+                @onclick:stopPropagation>
+            <Icon Name="x" Size="12" />
+        </button>
+    }
+</span>
+
+@code {
+    /// <summary>Tag content (jsx <c>children</c>).</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Colour tone (jsx <c>tone</c>): neutral (default) or accent.</summary>
+    [Parameter] public TagTone Tone { get; set; } = TagTone.Neutral;
+
+    /// <summary>Set IBM Plex Mono for identifiers (jsx <c>mono</c>).</summary>
+    [Parameter] public bool Mono { get; set; }
+
+    /// <summary>Optional leading Lucide icon name (jsx <c>icon</c>), rendered at 12px.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>When set, a dismiss ✕ button renders and invokes this on click (jsx <c>onRemove</c>).</summary>
+    [Parameter] public EventCallback OnRemove { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string Classes =>
+        $"mxt-tag mxt-tag--{Tone.ToString().ToLowerInvariant()}"
+        + (Mono ? " mxt-tag--mono" : "")
+        + (OnRemove.HasDelegate ? " mxt-tag--removable" : "");
+}

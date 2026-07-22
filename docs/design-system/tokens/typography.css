@@ -1,0 +1,40 @@
+/* Mendix Tools — Typography.
+   IBM Plex Sans for UI/prose, IBM Plex Mono for data, IDs, code, numeric readouts.
+   The app leans on mono for anything a consultant reads as data (env names, versions, sizes). */
+:root{
+  --font-sans:'IBM Plex Sans','Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-mono:'IBM Plex Mono','SF Mono',ui-monospace,'Cascadia Code',Menlo,monospace;
+
+  /* Type scale (px) — app base is 14 */
+  --text-2xs:11px;
+  --text-xs:12px;
+  --text-sm:13px;
+  --text-base:14px;
+  --text-md:15px;
+  --text-lg:16px;
+  --text-xl:18px;
+  --text-2xl:22px;
+  --text-3xl:28px;
+  --text-4xl:34px;
+  --text-5xl:44px;
+
+  /* Weights */
+  --fw-regular:400;
+  --fw-medium:500;
+  --fw-semibold:600;
+  --fw-bold:700;
+
+  /* Line heights */
+  --lh-none:1;
+  --lh-tight:1.2;
+  --lh-snug:1.35;
+  --lh-normal:1.5;
+  --lh-relaxed:1.65;
+
+  /* Letter spacing */
+  --tracking-tighter:-0.02em;
+  --tracking-tight:-0.01em;
+  --tracking-normal:0;
+  --tracking-wide:0.02em;
+  --tracking-wider:0.06em; /* eyebrows / uppercase labels */
+}

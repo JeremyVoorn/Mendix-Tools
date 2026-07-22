@@ -1,0 +1,64 @@
+@* Mendix Tools — Card (MT-03). Faithful port of
+   docs/design-system/components/display/Card.jsx; styles in
+   wwwroot/css/components.css (.mxt-card). Header renders when Title or
+   HeaderActions is set (jsx: `title || actions`), divided by --border-subtle.
+   Interactive cards lift to --shadow-md and darken their border on hover.
+   Usage: <Card Title="Local server" Subtitle="localhost:5432"
+                HeaderActions="@actions" Interactive>...</Card> *@
+@namespace Mendix_Tools.Components.UI
+
+<div class="@Classes" @onclick="OnClick" @attributes="AdditionalAttributes">
+    @if (Title is not null || HeaderActions is not null)
+    {
+        <div class="mxt-card__header">
+            <div class="mxt-card__heading">
+                @if (Title is not null)
+                {
+                    <span class="mxt-card__title">@Title</span>
+                }
+                @if (Subtitle is not null)
+                {
+                    <span class="mxt-card__subtitle">@Subtitle</span>
+                }
+            </div>
+            @if (HeaderActions is not null)
+            {
+                <div class="mxt-card__actions">@HeaderActions</div>
+            }
+        </div>
+    }
+    <div class="mxt-card__body" style="@BodyStyleValue">@ChildContent</div>
+</div>
+
+@code {
+    /// <summary>Card body (jsx <c>children</c>).</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Header title (jsx <c>title</c>). Header shows when this or HeaderActions is set.</summary>
+    [Parameter] public string? Title { get; set; }
+
+    /// <summary>Small tertiary line under the title (jsx <c>subtitle</c>).</summary>
+    [Parameter] public string? Subtitle { get; set; }
+
+    /// <summary>Right-aligned header actions slot (jsx <c>actions</c>) — buttons, badges, status dots.</summary>
+    [Parameter] public RenderFragment? HeaderActions { get; set; }
+
+    /// <summary>Body padding (jsx <c>padding</c>, default 16px). Any CSS padding value.</summary>
+    [Parameter] public string Padding { get; set; } = "16px";
+
+    /// <summary>Hover lift + pointer cursor for clickable cards (jsx <c>interactive</c>).</summary>
+    [Parameter] public bool Interactive { get; set; }
+
+    /// <summary>Extra inline style for the body (jsx <c>bodyStyle</c>).</summary>
+    [Parameter] public string? BodyStyle { get; set; }
+
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string Classes => Interactive ? "mxt-card mxt-card--interactive" : "mxt-card";
+
+    private string BodyStyleValue =>
+        $"padding:{Padding};" + (BodyStyle is null ? "" : $" {BodyStyle}");
+}

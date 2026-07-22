@@ -1,0 +1,49 @@
+@* Mendix Tools — Toast (MT-05). A single transient result notification, rendered by
+   ToastStack (readme feedback group). Styles in wwwroot/css/components.css (.mxt-toast*):
+   raised surface, --shadow-lg, tone-tinted leading icon, title + message, manual dismiss.
+   Slide-in is applied by the stack via the enter animation. Not usually placed directly —
+   call ToastService.Show(...) and let ToastStack render this. *@
+@namespace Mendix_Tools.Components.UI
+
+<div class="mxt-toast mxt-toast--@ToneClass" role="status" aria-live="polite">
+    @if (!string.IsNullOrEmpty(EffectiveIcon))
+    {
+        <span class="mxt-toast__icon mxt-toast__icon--@ToneClass">
+            <Icon Name="@EffectiveIcon" Size="17" />
+        </span>
+    }
+    <div class="mxt-toast__body">
+        @if (!string.IsNullOrEmpty(Message.Title))
+        {
+            <span class="mxt-toast__title">@Message.Title</span>
+        }
+        @if (!string.IsNullOrEmpty(Message.Message))
+        {
+            <span class="mxt-toast__message">@Message.Message</span>
+        }
+    </div>
+    <button type="button" class="mxt-toast__close" aria-label="Dismiss" @onclick="OnDismissAsync">
+        <Icon Name="x" Size="15" />
+    </button>
+</div>
+
+@code {
+    /// <summary>The notification to render.</summary>
+    [Parameter, EditorRequired] public ToastMessage Message { get; set; } = default!;
+
+    /// <summary>Manual-dismiss callback (the ✕). ToastStack wires this to ToastService.Dismiss.</summary>
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    private string ToneClass => Message.Tone.ToString().ToLowerInvariant();
+
+    // Explicit icon wins; otherwise a sensible default per tone using bundled Lucide names.
+    private string? EffectiveIcon => Message.Icon ?? Message.Tone switch
+    {
+        ToastTone.Success => "check-circle-2",
+        ToastTone.Warning => "alert-triangle",
+        ToastTone.Danger => "alert-triangle",
+        _ => null,
+    };
+
+    private Task OnDismissAsync() => OnDismiss.InvokeAsync();
+}

@@ -1,0 +1,50 @@
+@* Mendix Tools — IconButton (MT-03). Faithful port of
+   docs/design-system/components/forms/IconButton.jsx; styles in
+   wwwroot/css/components.css (.mxt-iconbtn). Square icon-only action for
+   toolbars and table rows; AriaLabel is required per the backlog AC.
+   Usage: <IconButton Icon="refresh-cw" AriaLabel="Refresh" OnClick="..." /> *@
+@namespace Mendix_Tools.Components.UI
+
+<button type="button"
+        class="@Classes"
+        aria-label="@AriaLabel"
+        disabled="@Disabled"
+        @onclick="HandleClickAsync"
+        @attributes="AdditionalAttributes">
+    <Icon Name="@Icon" Size="@IconPx" />
+</button>
+
+@code {
+    /// <summary>Bundled Lucide icon name (jsx <c>icon</c>), e.g. <c>"more-horizontal"</c>.</summary>
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+
+    /// <summary>Accessible name — required, the button has no visible label (jsx <c>aria-label</c>).</summary>
+    [Parameter, EditorRequired] public string AriaLabel { get; set; } = string.Empty;
+
+    /// <summary>Visual variant (jsx <c>variant</c>, default ghost).</summary>
+    [Parameter] public IconButtonVariant Variant { get; set; } = IconButtonVariant.Ghost;
+
+    /// <summary>Square size (jsx <c>size</c>): sm 28px, md 34px, lg 40px.</summary>
+    [Parameter] public ControlSize Size { get; set; } = ControlSize.Md;
+
+    [Parameter] public bool Disabled { get; set; }
+
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string Classes =>
+        $"mxt-iconbtn mxt-iconbtn--{Size.ToString().ToLowerInvariant()} mxt-iconbtn--{Variant.ToString().ToLowerInvariant()}";
+
+    // Icon sizes per IconButton.jsx iconSize map: sm 15, md 17, lg 19.
+    private int IconPx => Size switch
+    {
+        ControlSize.Sm => 15,
+        ControlSize.Lg => 19,
+        _ => 17,
+    };
+
+    private Task HandleClickAsync(MouseEventArgs e)
+        => Disabled ? Task.CompletedTask : OnClick.InvokeAsync(e);
+}

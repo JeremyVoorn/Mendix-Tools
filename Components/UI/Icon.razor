@@ -1,0 +1,63 @@
+@* Mendix Tools — Lucide icon (MT-02).
+   Renders a bundled Lucide icon inline (no CDN request) per the design-system
+   Iconography rules: outline stroke, currentColor, 24x24 viewBox, rounded joins.
+   Usage: <Icon Name="database-backup" /> or <Icon Name="rocket" Size="20" />
+   Colour is inherited via currentColor from the surrounding text. *@
+@namespace Mendix_Tools.Components.UI
+
+@if (_markup is not null)
+{
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="@Size"
+         height="@Size"
+         viewBox="0 0 24 24"
+         fill="none"
+         stroke="currentColor"
+         stroke-width="@StrokeWidth"
+         stroke-linecap="round"
+         stroke-linejoin="round"
+         class="@CssClass"
+         style="@Style"
+         aria-hidden="true"
+         focusable="false">
+        @((MarkupString)_markup)
+    </svg>
+}
+
+@code {
+    private string? _markup;
+
+    /// <summary>Lucide icon name in kebab-case, e.g. <c>"database-backup"</c>. Must be bundled in <see cref="LucideIcons"/>.</summary>
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Rendered width/height in px. Design system: 14–17 inline, 20–22 in dialog/section headers.</summary>
+    [Parameter]
+    public int Size { get; set; } = 16;
+
+    /// <summary>Stroke width on the 24x24 grid (Lucide default 2).</summary>
+    [Parameter]
+    public double StrokeWidth { get; set; } = 2;
+
+    /// <summary>Extra CSS class(es) appended after the standard <c>lucide lucide-&lt;name&gt;</c> classes.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+
+    /// <summary>Inline style passthrough (e.g. <c>color: var(--danger)</c> to tint for state).</summary>
+    [Parameter]
+    public string? Style { get; set; }
+
+    private string CssClass => string.IsNullOrEmpty(Class)
+        ? $"lucide lucide-{Name}"
+        : $"lucide lucide-{Name} {Class}";
+
+    protected override void OnParametersSet()
+    {
+        _markup = LucideIcons.Get(Name);
+        if (_markup is null)
+        {
+            // A missing icon is a programming error; fail loudly in debug, render nothing in release.
+            System.Diagnostics.Debug.Fail($"Icon '{Name}' is not bundled in LucideIcons. Add it to Components/UI/LucideIcons.cs.");
+        }
+    }
+}

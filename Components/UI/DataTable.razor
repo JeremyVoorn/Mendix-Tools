@@ -1,0 +1,142 @@
+@* Mendix Tools — DataTable (MT-06). Faithful port of
+   docs/design-system/components/data/DataTable.jsx; styles in
+   wwwroot/css/components.css (.mxt-table*). Generic over the row type. Columns carry
+   header/align/width/mono and either a plain Value accessor or a custom Render template.
+   Selectable mode adds per-row checkboxes and a select-all header checkbox with an
+   indeterminate state (reuses the MT-04 Checkbox); rows hover-tint and can be clicked.
+   Selection identity comes from RowId (defaults to the row instance).
+   Usage:
+     <DataTable TRow="Snapshot" Rows="_snapshots" Columns="_columns"
+                Selectable Selected="_selected" SelectedChanged="OnSelected"
+                OnRowClick="OpenSnapshot" EmptyText="No backups yet" /> *@
+@namespace Mendix_Tools.Components.UI
+@typeparam TRow
+
+<div class="mxt-table @(Dense ? "mxt-table--dense" : "")" style="@Style" @attributes="AdditionalAttributes">
+    <table class="mxt-table__table">
+        <thead>
+            <tr class="mxt-table__headrow">
+                @if (Selectable)
+                {
+                    <th class="mxt-table__cell mxt-table__cell--check">
+                        <Checkbox Checked="AllChecked"
+                                  Indeterminate="SomeChecked"
+                                  CheckedChanged="_ => ToggleAll()"
+                                  aria-label="Select all rows" />
+                    </th>
+                }
+                @foreach (var col in Columns)
+                {
+                    <th class="mxt-table__cell mxt-table__head mxt-table__cell--@AlignClass(col.Align)"
+                        style="@(col.Width is null ? null : $"width:{col.Width};")">@col.Header</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @if (Rows.Count == 0)
+            {
+                <tr>
+                    <td class="mxt-table__empty" colspan="@ColSpan">@EmptyText</td>
+                </tr>
+            }
+            @foreach (var row in Rows)
+            {
+                var current = row;
+                var id = RowId(current);
+                var isSel = IsSelected(id);
+                <tr class="mxt-table__row @(isSel ? "mxt-table__row--selected" : "") @(OnRowClick.HasDelegate ? "mxt-table__row--clickable" : "")"
+                    @key="id"
+                    @onclick="() => HandleRowClick(current)">
+                    @if (Selectable)
+                    {
+                        <td class="mxt-table__cell mxt-table__cell--check" @onclick:stopPropagation="true">
+                            <Checkbox Checked="isSel"
+                                      CheckedChanged="_ => ToggleOne(id)"
+                                      aria-label="Select row" />
+                        </td>
+                    }
+                    @foreach (var col in Columns)
+                    {
+                        <td class="mxt-table__cell mxt-table__cell--@AlignClass(col.Align) @(col.Mono ? "mxt-table__cell--mono" : "") @(col.Wrap ? "mxt-table__cell--wrap" : "")">
+                            @if (col.Render is not null)
+                            {
+                                @col.Render(current)
+                            }
+                            else if (col.Value is not null)
+                            {
+                                @col.Value(current)
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    /// <summary>Column definitions (jsx <c>columns</c>).</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<DataColumn<TRow>> Columns { get; set; } = [];
+
+    /// <summary>Row data (jsx <c>rows</c>).</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<TRow> Rows { get; set; } = [];
+
+    /// <summary>Selection identity for a row (jsx <c>getRowId</c>). Defaults to the row instance,
+    /// so selection tracks object identity — fine for the screens' stable row objects.</summary>
+    [Parameter] public Func<TRow, object> RowId { get; set; } = r => r!;
+
+    /// <summary>Enable per-row checkboxes + a select-all header (jsx <c>selectable</c>).</summary>
+    [Parameter] public bool Selectable { get; set; }
+
+    /// <summary>Selected row ids (jsx <c>selected</c>). Compared with the values from <see cref="RowId"/>.</summary>
+    [Parameter] public IReadOnlyCollection<object>? Selected { get; set; }
+
+    /// <summary>Fired with the new selection when it changes (jsx <c>onSelectChange</c>).</summary>
+    [Parameter] public EventCallback<IReadOnlyList<object>> SelectedChanged { get; set; }
+
+    /// <summary>Fired when a row is clicked (jsx <c>onRowClick</c>). Row clicks are ignored on the checkbox cell.</summary>
+    [Parameter] public EventCallback<TRow> OnRowClick { get; set; }
+
+    /// <summary>Tighter cell padding (jsx <c>dense</c>).</summary>
+    [Parameter] public bool Dense { get; set; }
+
+    /// <summary>Text shown when there are no rows (jsx <c>emptyText</c>).</summary>
+    [Parameter] public string EmptyText { get; set; } = "No rows";
+
+    /// <summary>Inline style passthrough (jsx <c>style</c>).</summary>
+    [Parameter] public string? Style { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private IReadOnlyCollection<object> Sel => Selected ?? [];
+    private int ColSpan => Columns.Count + (Selectable ? 1 : 0);
+    private bool AllChecked => Rows.Count > 0 && Sel.Count == Rows.Count;
+    private bool SomeChecked => Sel.Count > 0 && !AllChecked;
+
+    private bool IsSelected(object id) => Sel.Any(s => Equals(s, id));
+
+    private static string AlignClass(ColumnAlign align) => align switch
+    {
+        ColumnAlign.Center => "center",
+        ColumnAlign.Right => "right",
+        _ => "left",
+    };
+
+    private Task ToggleAll()
+    {
+        var next = AllChecked ? new List<object>() : Rows.Select(RowId).ToList();
+        return SelectedChanged.InvokeAsync(next);
+    }
+
+    private Task ToggleOne(object id)
+    {
+        List<object> next = IsSelected(id)
+            ? Sel.Where(s => !Equals(s, id)).ToList()
+            : [.. Sel, id];
+        return SelectedChanged.InvokeAsync(next);
+    }
+
+    private Task HandleRowClick(TRow row)
+        => OnRowClick.HasDelegate ? OnRowClick.InvokeAsync(row) : Task.CompletedTask;
+}

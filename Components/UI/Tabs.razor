@@ -1,0 +1,95 @@
+@* Mendix Tools — Tabs (MT-04). Faithful port of
+   docs/design-system/components/display/Tabs.jsx; styles in
+   wwwroot/css/components.css (.mxt-tabs / .mxt-tab). Underline-style in-screen view
+   switcher with optional icons and mono count pills (jsx tabs → Items, since a
+   parameter cannot share the enclosing type's name). Keyboard: roving tabindex —
+   Tab reaches the active tab; Left/Right/Home/End move and select (automatic
+   activation); Enter/Space activate natively as buttons.
+   Usage: <Tabs Items="_tabs" @bind-Value="_activeTab" /> *@
+@namespace Mendix_Tools.Components.UI
+@using System.Linq.Expressions
+
+<div class="mxt-tabs" role="tablist" @attributes="AdditionalAttributes">
+    @for (var i = 0; i < Items.Count; i++)
+    {
+        var index = i;
+        var item = Items[index];
+        var isActive = item.Value == ActiveValue;
+        <button @key="item.Value"
+                @ref="_tabRefs[item.Value]"
+                type="button"
+                role="tab"
+                aria-selected="@(isActive ? "true" : "false")"
+                tabindex="@(isActive ? 0 : -1)"
+                class="@(isActive ? "mxt-tab mxt-tab--active" : "mxt-tab")"
+                @onclick="() => SelectAsync(item.Value)"
+                @onkeydown="e => HandleKeyDownAsync(e, index)">
+            @if (!string.IsNullOrEmpty(item.Icon))
+            {
+                <Icon Name="@item.Icon" Size="15" />
+            }
+            @item.Label
+            @if (item.Count is not null)
+            {
+                <span class="mxt-tab__count">@item.Count</span>
+            }
+        </button>
+    }
+</div>
+
+@code {
+    private readonly Dictionary<string, ElementReference> _tabRefs = new();
+
+    /// <summary>Tab definitions (jsx <c>tabs</c>): value, label, optional Lucide icon name, optional count.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<TabItem> Items { get; set; } = [];
+
+    /// <summary>Active tab value (two-way via <c>@bind-Value</c>). Falls back to the first tab when unset,
+    /// matching the JSX default.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Supplied automatically by <c>@bind-Value</c> inside an EditForm; unused otherwise.</summary>
+    [Parameter] public Expression<Func<string?>>? ValueExpression { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string? ActiveValue => Value ?? (Items.Count > 0 ? Items[0].Value : null);
+
+    private async Task SelectAsync(string value)
+    {
+        if (Value == value)
+        {
+            return;
+        }
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e, int index)
+    {
+        if (Items.Count == 0)
+        {
+            return;
+        }
+        var next = e.Key switch
+        {
+            "ArrowRight" => (index + 1) % Items.Count,
+            "ArrowLeft" => (index - 1 + Items.Count) % Items.Count,
+            "Home" => 0,
+            "End" => Items.Count - 1,
+            _ => -1,
+        };
+        if (next < 0 || next == index)
+        {
+            return;
+        }
+        var target = Items[next];
+        await SelectAsync(target.Value);
+        if (_tabRefs.TryGetValue(target.Value, out var element))
+        {
+            await element.FocusAsync();
+        }
+    }
+}

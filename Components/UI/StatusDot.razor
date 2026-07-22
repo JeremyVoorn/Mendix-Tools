@@ -1,0 +1,62 @@
+@* Mendix Tools — StatusDot (MT-03). Faithful port of
+   docs/design-system/components/display/StatusDot.jsx; styles in
+   wwwroot/css/components.css (.mxt-dot). Status stays a string because it is
+   data-driven (API states map straight through); unknown values fall back to
+   the muted tertiary colour, exactly like the JSX colour map.
+   Usage: <StatusDot Status="running" Pulse Label="Reachable" /> *@
+@namespace Mendix_Tools.Components.UI
+
+@if (Label is null)
+{
+    <span class="mxt-dot @ColorClass" style="@DotStyle" @attributes="AdditionalAttributes">
+        @if (Pulse)
+        {
+            <span class="mxt-dot__ping" aria-hidden="true"></span>
+        }
+        <span class="mxt-dot__core"></span>
+    </span>
+}
+else
+{
+    <span class="mxt-statusdot" @attributes="AdditionalAttributes">
+        <span class="mxt-dot @ColorClass" style="@DotStyle">
+            @if (Pulse)
+            {
+                <span class="mxt-dot__ping" aria-hidden="true"></span>
+            }
+            <span class="mxt-dot__core"></span>
+        </span>
+        <span class="mxt-statusdot__label">@Label</span>
+    </span>
+}
+
+@code {
+    /// <summary>Status keyword (jsx <c>status</c>, default "idle"). Recognised values per the
+    /// JSX colour map: running/success/online (green), stopped/offline/idle (muted),
+    /// warning/degraded/pending (amber), error/failed (red), busy/deploying/running_task (accent).
+    /// Anything else renders muted.</summary>
+    [Parameter] public string Status { get; set; } = "idle";
+
+    /// <summary>Animated ping halo for in-progress states (jsx <c>pulse</c>).</summary>
+    [Parameter] public bool Pulse { get; set; }
+
+    /// <summary>Dot diameter in px (jsx <c>size</c>, default 8).</summary>
+    [Parameter] public int Size { get; set; } = 8;
+
+    /// <summary>Optional text label rendered beside the dot (jsx <c>label</c>).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string DotStyle => $"width:{Size}px;height:{Size}px;";
+
+    private string ColorClass => Status switch
+    {
+        "running" or "success" or "online" => "mxt-dot--success",
+        "warning" or "degraded" or "pending" => "mxt-dot--warning",
+        "error" or "failed" => "mxt-dot--danger",
+        "busy" or "deploying" or "running_task" => "mxt-dot--accent",
+        _ => "mxt-dot--muted", // stopped / offline / idle / unknown
+    };
+}

@@ -1,0 +1,741 @@
+@* MT-02 verification page (dev-only, per backlog DoD extras: "a temporary /styleguide dev
+   page may be used to verify, but is not required to ship"). Shows tokens, both fonts and
+   every bundled icon in light and dark theme. MT-03+ extend this page with primitives. *@
+@page "/styleguide"
+@inject IJSRuntime Js
+@inject Mendix_Tools.Components.UI.ToastService Toasts
+@implements IDisposable
+
+<div style="padding:var(--space-6); max-width:var(--content-max); margin:0 auto; display:flex; flex-direction:column; gap:var(--space-6);">
+
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div>
+            <h1 style="font-size:var(--text-2xl); letter-spacing:var(--tracking-tighter);">Styleguide</h1>
+            <p style="color:var(--text-secondary); margin-top:var(--space-1);">MT-02 tokens, fonts, icons · MT-03 primitives batch A · MT-04 form primitives batch B · MT-05 feedback batch C · MT-06 data batch D — the visual regression surface.</p>
+        </div>
+        <button @onclick="ToggleThemeAsync"
+                style="display:inline-flex; align-items:center; gap:var(--space-2); height:var(--control-md); padding:0 var(--space-3); font:inherit; font-size:var(--text-sm); color:var(--text-primary); background:var(--bg-surface); border:var(--border-w) solid var(--border-strong); border-radius:var(--radius-lg); cursor:pointer;">
+            <Icon Name="@(_dark ? "sun" : "moon")" />
+            @(_dark ? "Light theme" : "Dark theme")
+        </button>
+    </div>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Typography</h2>
+        <p>IBM Plex Sans regular — the quick brown fox jumps over the lazy dog.</p>
+        <p style="font-weight:var(--fw-medium);">IBM Plex Sans medium 500.</p>
+        <p style="font-weight:var(--fw-semibold);">IBM Plex Sans semibold 600.</p>
+        <p style="font-weight:var(--fw-bold);">IBM Plex Sans bold 700.</p>
+        <p style="font-style:italic;">IBM Plex Sans italic 400.</p>
+        <p style="font-family:var(--font-mono); margin-top:var(--space-3);">IBM Plex Mono 400 — acme_local · 10.12.4 · 2.4 GB · localhost:5432</p>
+        <p style="font-family:var(--font-mono); font-weight:var(--fw-medium);">IBM Plex Mono 500 — pg_restore --clean --if-exists</p>
+        <p style="font-family:var(--font-mono); font-weight:var(--fw-semibold);">IBM Plex Mono 600 — acme-10.12.4.mpk</p>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Color tokens</h2>
+        <div style="display:flex; flex-wrap:wrap; gap:var(--space-3);">
+            @foreach (var token in Swatches)
+            {
+                <div style="display:flex; align-items:center; gap:var(--space-2);">
+                    <span style="width:20px; height:20px; border-radius:var(--radius-sm); border:var(--border-w) solid var(--border); background:var(@token); display:inline-block;"></span>
+                    <code style="font-size:var(--text-xs);">@token</code>
+                </div>
+            }
+        </div>
+    </section>
+
+    @* ============ MT-03 — primitives batch A ============ *@
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Button</h2>
+
+        <p style="@EyebrowStyle">Variants (md)</p>
+        <div style="@RowStyle">
+            <Button OnClick="CountClick">Primary</Button>
+            <Button Variant="ButtonVariant.Secondary" OnClick="CountClick">Secondary</Button>
+            <Button Variant="ButtonVariant.Ghost" OnClick="CountClick">Ghost</Button>
+            <Button Variant="ButtonVariant.Subtle" OnClick="CountClick">Subtle</Button>
+            <Button Variant="ButtonVariant.Danger" OnClick="CountClick">Danger</Button>
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">clicks: <code>@_clicks</code></span>
+        </div>
+
+        <p style="@EyebrowStyle">Sizes</p>
+        <div style="@RowStyle">
+            <Button Size="ControlSize.Sm">Small</Button>
+            <Button Size="ControlSize.Md">Medium</Button>
+            <Button Size="ControlSize.Lg">Large</Button>
+        </div>
+
+        <p style="@EyebrowStyle">Left icon · loading · disabled</p>
+        <div style="@RowStyle">
+            <Button Icon="plus">Create backup</Button>
+            <Button Variant="ButtonVariant.Secondary" Icon="refresh-cw">Refresh</Button>
+            <Button Variant="ButtonVariant.Subtle" Size="ControlSize.Sm" Icon="database-backup">Restore</Button>
+            <Button Loading="@_loadingDemo" Icon="rocket" OnClick="RunLoadingDemo">@(_loadingDemo ? "Deploying" : "Deploy")</Button>
+            <Button Disabled>Primary disabled</Button>
+            <Button Variant="ButtonVariant.Secondary" Disabled>Secondary disabled</Button>
+        </div>
+
+        @* MT-04 carry-forward W1 from the MT-03 review: FullWidth + RightIcon shipped in MT-03 but were undemonstrated. *@
+        <p style="@EyebrowStyle">Right icon</p>
+        <div style="@RowStyle">
+            <Button Variant="ButtonVariant.Secondary">
+                <ChildContent>Open in Sprintr</ChildContent>
+                <RightIcon><Icon Name="external-link" Size="15" /></RightIcon>
+            </Button>
+            <Button Variant="ButtonVariant.Ghost" Size="ControlSize.Sm">
+                <ChildContent>Details</ChildContent>
+                <RightIcon><Icon Name="chevron-down" Size="13" /></RightIcon>
+            </Button>
+        </div>
+
+        <p style="@EyebrowStyle">Full width (in a 360px column)</p>
+        <div style="display:flex; flex-direction:column; gap:var(--space-3); max-width:360px;">
+            <Button FullWidth Icon="rocket">Deploy to Acceptance</Button>
+            <Button FullWidth Variant="ButtonVariant.Secondary" Icon="download">Download backup</Button>
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">IconButton</h2>
+
+        <p style="@EyebrowStyle">Variants (md)</p>
+        <div style="@RowStyle">
+            <IconButton Icon="refresh-cw" AriaLabel="Refresh" />
+            <IconButton Icon="external-link" AriaLabel="Open in pgAdmin" Variant="IconButtonVariant.Secondary" />
+            <IconButton Icon="plus" AriaLabel="New" Variant="IconButtonVariant.Primary" />
+            <IconButton Icon="trash-2" AriaLabel="Drop database" Variant="IconButtonVariant.Danger" />
+            <IconButton Icon="more-horizontal" AriaLabel="More" Disabled />
+        </div>
+
+        <p style="@EyebrowStyle">Sizes</p>
+        <div style="@RowStyle">
+            <IconButton Icon="download" AriaLabel="Download" Size="ControlSize.Sm" />
+            <IconButton Icon="download" AriaLabel="Download" Size="ControlSize.Md" />
+            <IconButton Icon="download" AriaLabel="Download" Size="ControlSize.Lg" />
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Card</h2>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:var(--space-4);">
+            <Card>
+                <p style="color:var(--text-secondary); font-size:var(--text-sm);">Plain card — body only, 16px padding, no header.</p>
+            </Card>
+            <Card Title="Local server" Subtitle="localhost:5432">
+                <p style="color:var(--text-secondary); font-size:var(--text-sm);">Header with title + subtitle, divided by <code>--border-subtle</code>.</p>
+            </Card>
+            <Card Title="Production" Subtitle="Acme Insurance">
+                <HeaderActions>
+                    <Badge Tone="BadgeTone.Success" Dot>Running</Badge>
+                    <IconButton Icon="more-horizontal" AriaLabel="More" Size="ControlSize.Sm" />
+                </HeaderActions>
+                <ChildContent>
+                    <p style="color:var(--text-secondary); font-size:var(--text-sm);">Header with right-aligned actions slot.</p>
+                </ChildContent>
+            </Card>
+            <Card Interactive OnClick="CountClick">
+                <p style="color:var(--text-secondary); font-size:var(--text-sm);">Interactive card — hover lifts to <code>--shadow-md</code> and darkens the border; click counts (@_clicks).</p>
+            </Card>
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Badge</h2>
+
+        <p style="@EyebrowStyle">Tones (md)</p>
+        <div style="@RowStyle">
+            <Badge>Neutral</Badge>
+            <Badge Tone="BadgeTone.Accent">Accent</Badge>
+            <Badge Tone="BadgeTone.Success">Success</Badge>
+            <Badge Tone="BadgeTone.Warning">Warning</Badge>
+            <Badge Tone="BadgeTone.Danger">Danger</Badge>
+            <Badge Tone="BadgeTone.Info">Info</Badge>
+            <Badge Tone="BadgeTone.Db">db</Badge>
+            <Badge Tone="BadgeTone.Package">package</Badge>
+        </div>
+
+        <p style="@EyebrowStyle">Dot · sm · usage</p>
+        <div style="@RowStyle">
+            <Badge Tone="BadgeTone.Success" Dot>Running</Badge>
+            <Badge Tone="BadgeTone.Warning" Dot>Degraded</Badge>
+            <Badge Tone="BadgeTone.Danger" Dot>Stopped</Badge>
+            <Badge Size="BadgeSize.Sm">sm neutral</Badge>
+            <Badge Tone="BadgeTone.Db" Size="BadgeSize.Sm">16.2</Badge>
+            <Badge Tone="BadgeTone.Package" Size="BadgeSize.Sm">mpk</Badge>
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">StatusDot</h2>
+
+        <p style="@EyebrowStyle">Status colours (with labels)</p>
+        <div style="@RowStyle">
+            <StatusDot Status="running" Label="running" />
+            <StatusDot Status="stopped" Label="stopped" />
+            <StatusDot Status="degraded" Label="degraded" />
+            <StatusDot Status="failed" Label="failed" />
+            <StatusDot Status="deploying" Label="deploying" />
+        </div>
+
+        <p style="@EyebrowStyle">Pulse · bare dot · size</p>
+        <div style="@RowStyle">
+            <StatusDot Status="running" Pulse Label="Reachable" />
+            <StatusDot Status="deploying" Pulse Size="9" Label="Importing into acme_local" />
+            <StatusDot Status="success" />
+            <StatusDot Status="pending" Pulse />
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Tag</h2>
+
+        <p style="@EyebrowStyle">Tones · mono · icon</p>
+        <div style="@RowStyle">
+            <Tag>Production</Tag>
+            <Tag Tone="TagTone.Accent">eu-west-1</Tag>
+            <Tag Mono>acme_local</Tag>
+            <Tag Mono>10.12.4</Tag>
+            <Tag Tone="TagTone.Accent" Icon="filter">3 apps</Tag>
+        </div>
+
+        <p style="@EyebrowStyle">Removable (click ✕)</p>
+        <div style="@RowStyle">
+            @foreach (var tag in _tags)
+            {
+                <Tag Mono OnRemove="() => RemoveTag(tag)">@tag</Tag>
+            }
+            @if (_tags.Count == 0)
+            {
+                <Button Variant="ButtonVariant.Ghost" Size="ControlSize.Sm" Icon="rotate-cw" OnClick="ResetTags">Reset tags</Button>
+            }
+        </div>
+    </section>
+
+    @* ============ MT-04 — form primitives batch B ============ *@
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Input</h2>
+
+        <p style="@EyebrowStyle">Label · hint · two-way binding (@@bind-Value)</p>
+        <div style="@RowStyle">
+            <Input Label="Host" Hint="The Postgres server restores connect to." Placeholder="localhost" @bind-Value="_host" Style="width:240px" />
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">bound: <code>@(_host ?? "—")</code></span>
+        </div>
+
+        <p style="@EyebrowStyle">Mono · left icon · right slot (reveal) · error · disabled</p>
+        <div style="@RowStyle">
+            <Input Label="Data directory" Mono LeftIcon="folder" @bind-Value="_dataDir" Style="width:280px" />
+            <Input Label="Password" Mono Type="@(_revealPassword ? "text" : "password")" @bind-Value="_password" Style="width:220px">
+                <RightSlot>
+                    <IconButton Icon="eye" AriaLabel="@(_revealPassword ? "Hide password" : "Reveal password")" Size="ControlSize.Sm" OnClick="() => _revealPassword = !_revealPassword" />
+                </RightSlot>
+            </Input>
+            <Input Label="Port" Mono Value="54g2" Error="Port must be a number." Style="width:120px" />
+            <Input Label="Region" Value="eu-west-1" Hint="Fixed for this credential." Disabled Style="width:160px" />
+        </div>
+
+        <p style="@EyebrowStyle">Sizes</p>
+        <div style="@RowStyle">
+            <Input Size="ControlSize.Sm" Placeholder="Small (28px)" Style="width:170px" />
+            <Input Size="ControlSize.Md" Placeholder="Medium (34px)" Style="width:170px" />
+            <Input Size="ControlSize.Lg" Placeholder="Large (40px)" Style="width:170px" />
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Select</h2>
+
+        <p style="@EyebrowStyle">Options list · two-way binding (@@bind-Value)</p>
+        <div style="@RowStyle">
+            <Select Label="Source environment" Options="_envOptions" @bind-Value="_env" Style="width:260px" />
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">bound: <code>@_env</code></span>
+        </div>
+
+        <p style="@EyebrowStyle">Child-content options · hint · error · disabled · sizes</p>
+        <div style="@RowStyle">
+            <Select Label="Branch" Hint="Team Server branch to build from." @bind-Value="_branch" Style="width:200px">
+                <option value="main">main</option>
+                <option value="rc">release/10.12</option>
+            </Select>
+            <Select Label="Strategy" Options="_strategyOptions" Value="clean" Error="Merge is not available in this version." Style="width:200px" />
+            <Select Label="API region" Options="_regionOptions" Value="eu" Disabled Style="width:160px" />
+            <Select Size="ControlSize.Sm" Options="_regionOptions" Value="eu" Style="width:130px" />
+            <Select Size="ControlSize.Lg" Options="_regionOptions" Value="eu" Style="width:150px" />
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Checkbox</h2>
+
+        <p style="@EyebrowStyle">Two-way binding (@@bind-Checked) · description · disabled</p>
+        <div style="@RowStyle">
+            <Checkbox Label="Keep the downloaded .backup file after restore" @bind-Checked="_keepFile" />
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">bound: <code>@_keepFile</code></span>
+        </div>
+        <div style="@RowStyle">
+            <Checkbox Label="Verify checksum after download" Description="Runs a local zip/tar integrity test on the archive." @bind-Checked="_verifyChecksum" />
+            <Checkbox Label="Disabled unchecked" Disabled />
+            <Checkbox Label="Disabled checked" Checked Disabled />
+        </div>
+
+        <p style="@EyebrowStyle">Indeterminate — select-all header</p>
+        <div style="display:flex; flex-direction:column; gap:var(--space-2);">
+            <Checkbox Label="@SelectAllLabel"
+                      Checked="@_rows.All(r => r.Selected)"
+                      Indeterminate="@(_rows.Any(r => r.Selected) && !_rows.All(r => r.Selected))"
+                      CheckedChanged="ToggleAllRows" />
+            <div style="display:flex; flex-direction:column; gap:var(--space-2); padding-left:var(--space-5); border-left:var(--border-w) solid var(--border-subtle); margin-left:var(--space-2);">
+                @foreach (var row in _rows)
+                {
+                    var current = row;
+                    <Checkbox Label="@current.Name" Checked="@current.Selected" CheckedChanged="v => current.Selected = v" />
+                }
+            </div>
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Radio</h2>
+
+        <p style="@EyebrowStyle">Named group · descriptions · two-way binding (@@bind-SelectedValue)</p>
+        <div style="display:flex; flex-direction:column; gap:var(--space-3); margin-bottom:var(--space-4);">
+            <Radio Name="strategy" Value="clean" Label="Clean restore" Description="Drop and recreate the schema before import" @bind-SelectedValue="_strategy" />
+            <Radio Name="strategy" Value="merge" Label="Merge into existing" Description="Keep current data, import over it" @bind-SelectedValue="_strategy" />
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">bound: <code>@_strategy</code></span>
+        </div>
+
+        <p style="@EyebrowStyle">Label-only group · disabled option</p>
+        <div style="@RowStyle">
+            <Radio Name="theme-demo" Value="light" Label="Light" @bind-SelectedValue="_themeChoice" />
+            <Radio Name="theme-demo" Value="dark" Label="Dark" @bind-SelectedValue="_themeChoice" />
+            <Radio Name="theme-demo" Value="system" Label="System" Disabled @bind-SelectedValue="_themeChoice" />
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Switch</h2>
+
+        <p style="@EyebrowStyle">Two-way binding (@@bind-Checked) · description</p>
+        <div style="@RowStyle">
+            <Switch Label="Auto-refresh every 30 seconds" @bind-Checked="_autoRefresh" />
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">bound: <code>@_autoRefresh</code></span>
+        </div>
+        <div style="@RowStyle">
+            <Switch Label="Keep downloaded .backup files" Description="Files stay in the data directory after a restore completes." @bind-Checked="_keepFiles" />
+        </div>
+
+        <p style="@EyebrowStyle">Sizes · disabled</p>
+        <div style="@RowStyle">
+            <Switch Label="Small" Size="SwitchSize.Sm" @bind-Checked="_smallSwitch" />
+            <Switch Label="Medium" @bind-Checked="_mediumSwitch" />
+            <Switch Label="Disabled off" Disabled />
+            <Switch Label="Disabled on" Checked Disabled />
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Tabs</h2>
+
+        <p style="@EyebrowStyle">Icons · counts · active state · two-way binding (@@bind-Value)</p>
+        <Tabs Items="_tabItems" @bind-Value="_activeTab" />
+        <p style="font-size:var(--text-sm); color:var(--text-secondary); margin-top:var(--space-3);">
+            Active view: <code>@_activeTab</code> — Left/Right/Home/End move between tabs; Tab reaches the active one.
+        </p>
+    </section>
+
+    @* ============ MT-05 — feedback primitives batch C ============ *@
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Dialog</h2>
+
+        <p style="@EyebrowStyle">Live — open a dialog (Esc / overlay-click / ✕ close · Tab trapped · focus returns to trigger)</p>
+        <div style="@RowStyle">
+            <Button Variant="ButtonVariant.Secondary" OnClick='() => OpenDialog(DialogTone.Accent, "database-backup")'>Accent dialog</Button>
+            <Button Variant="ButtonVariant.Secondary" OnClick='() => OpenDialog(DialogTone.Warning, "alert-triangle")'>Warning dialog</Button>
+            <Button Variant="ButtonVariant.Danger" OnClick='() => OpenDialog(DialogTone.Danger, "trash-2")'>Danger dialog</Button>
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">last action: <code>@(_dialogResult ?? "—")</code></span>
+        </div>
+
+        <Dialog Open="_dialogOpen" OnClose="CloseDialog" Tone="_dialogTone" Icon="@_dialogIcon"
+                Title="Restore to local Postgres"
+                Description="Snapshot from 2026-07-21 02:00 (2.4 GB) will be imported into your local server.">
+            <ChildContent>
+                <Input Label="Target database" Mono @bind-Value="_dialogTarget" Style="width:100%" />
+                <div style="margin-top:var(--space-3);">
+                    <Checkbox Label="Keep the downloaded .backup file after restore" @bind-Checked="_dialogKeep" />
+                </div>
+            </ChildContent>
+            <Footer>
+                <Button Variant="ButtonVariant.Secondary" OnClick="CloseDialog">Cancel</Button>
+                <Button OnClick="ConfirmDialog">Start restore</Button>
+            </Footer>
+        </Dialog>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Tooltip</h2>
+
+        <p style="@EyebrowStyle">Hover / focus · placements · on disabled icon buttons + truncated values</p>
+        <div style="@RowStyle">
+            <Tooltip Label="Available after cloud connection">
+                <IconButton Icon="download" AriaLabel="Download" Disabled />
+            </Tooltip>
+            <Tooltip Label="Open in browser" Placement="TooltipPlacement.Bottom">
+                <IconButton Icon="external-link" AriaLabel="Open" Variant="IconButtonVariant.Secondary" />
+            </Tooltip>
+            <Tooltip Label="Backup created by Mendix pipeline" Placement="TooltipPlacement.Right">
+                <span style="max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); font-size:var(--text-sm); color:var(--text-secondary); border-bottom:1px dashed var(--border-strong);">Backup created by Mendix pipeline…</span>
+            </Tooltip>
+            <Tooltip Label="Nudge left" Placement="TooltipPlacement.Left">
+                <IconButton Icon="more-horizontal" AriaLabel="More" Variant="IconButtonVariant.Ghost" />
+            </Tooltip>
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">ProgressBar</h2>
+
+        <p style="@EyebrowStyle">Determinate · tones · label + mono %</p>
+        <div style="display:flex; flex-direction:column; gap:var(--space-4); max-width:420px;">
+            <ProgressBar Value="24" Label="Downloading backup" />
+            <ProgressBar Value="62" Label="Importing into acme_local" Tone="ProgressTone.Db" />
+            <ProgressBar Value="100" Label="Restore complete" Tone="ProgressTone.Success" />
+            <ProgressBar Value="41" Label="Uploading package" Tone="ProgressTone.Package" />
+            <ProgressBar Value="88" Tone="ProgressTone.Warning" ShowValue="false" />
+        </div>
+
+        <p style="@EyebrowStyle">Indeterminate · sizes</p>
+        <div style="display:flex; flex-direction:column; gap:var(--space-4); max-width:420px;">
+            <ProgressBar Indeterminate Label="Requesting archive…" />
+            <ProgressBar Value="55" Size="ProgressSize.Sm" />
+            <ProgressBar Value="55" Size="ProgressSize.Md" />
+            <ProgressBar Value="55" Size="ProgressSize.Lg" />
+        </div>
+
+        <p style="@EyebrowStyle">Live — animates 0→100 on --duration-slow transitions</p>
+        <div style="display:flex; align-items:center; gap:var(--space-3); max-width:420px;">
+            <ProgressBar Value="_liveProgress" Label="Job progress" Tone="ProgressTone.Accent" Style="flex:1;" />
+            <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" OnClick="RunProgressDemo">Run</Button>
+        </div>
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Toast + ToastStack</h2>
+
+        <p style="@EyebrowStyle">Live — fires into the fixed bottom-right stack (slide-in · auto-dismiss 5s · manual ✕)</p>
+        <div style="@RowStyle">
+            <Button Variant="ButtonVariant.Secondary" OnClick='() => Toasts.Success("Backup created for Acme Insurance · Production.")'>Success toast</Button>
+            <Button Variant="ButtonVariant.Secondary" OnClick='() => Toasts.Show(ToastTone.Info, "Refreshing environments", "Fetching the latest state from Deploy API v1.")'>Info toast</Button>
+            <Button Variant="ButtonVariant.Secondary" OnClick='() => Toasts.Show(ToastTone.Warning, "Archive link expired", "Re-requesting a fresh download URL.", "alert-triangle")'>Warning toast</Button>
+            <Button Variant="ButtonVariant.Secondary" OnClick='() => Toasts.Error("Deploy failed — build exited with code 1.", "View logs for the full stderr.")'>Error toast</Button>
+            <Button Variant="ButtonVariant.Ghost" OnClick='() => Toasts.Show(ToastTone.Neutral, "Nothing to do", "No new snapshots since the last refresh.", null, 0)'>Neutral (no auto-dismiss)</Button>
+        </div>
+    </section>
+
+    @* ============ MT-06 — data primitives batch D ============ *@
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">DataTable</h2>
+
+        <p style="@EyebrowStyle">Selectable · mono column · custom cell templates · row hover/click · select-all indeterminate</p>
+        <div style="display:flex; align-items:center; gap:var(--space-3); margin-bottom:var(--space-3);">
+            <Button Size="ControlSize.Sm" Icon="download" Disabled="@(_selectedSnapshots.Count == 0)">Download @_selectedSnapshots.Count</Button>
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">row click opens: <code>@(_openedSnapshot ?? "—")</code></span>
+        </div>
+        <DataTable TRow="SnapshotRow"
+                   Rows="_snapshots"
+                   Columns="_snapshotColumns"
+                   RowId="@(r => r.Id)"
+                   Selectable
+                   Selected="_selectedSnapshots"
+                   SelectedChanged="ids => _selectedSnapshots = ids"
+                   OnRowClick="r => _openedSnapshot = r.Created" />
+
+        <p style="@EyebrowStyle">Empty state</p>
+        <DataTable TRow="SnapshotRow" Rows="_noSnapshots" Columns="_snapshotColumns" EmptyText="No backups yet — create one to get started." />
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">LogViewer</h2>
+
+        <p style="@EyebrowStyle">Dark surface in both themes · colour-coded levels · auto-follow tail (scroll up to pause)</p>
+        <div style="display:flex; align-items:center; gap:var(--space-3); margin-bottom:var(--space-3);">
+            <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" Icon="plus" OnClick="AppendLogLine">Append line</Button>
+            <Button Size="ControlSize.Sm" Variant="ButtonVariant.Ghost" OnClick="Load5000Lines">Load 5,000 lines (perf)</Button>
+            <span style="font-size:var(--text-xs); color:var(--text-tertiary);">lines: <code>@_logLines.Count</code></span>
+        </div>
+        <LogViewer Lines="_logLines" Title="restore · acme_local" />
+    </section>
+
+    <section style="background:var(--bg-surface); border:var(--border-w) solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+        <h2 style="font-size:var(--text-lg); margin-bottom:var(--space-3);">Icons (@Mendix_Tools.Components.UI.LucideIcons.All.Count bundled)</h2>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:var(--space-3); color:var(--text-secondary);">
+            @foreach (var name in Mendix_Tools.Components.UI.LucideIcons.All.Keys)
+            {
+                <div style="display:flex; align-items:center; gap:var(--space-2);">
+                    <Icon Name="@name" />
+                    <code style="font-size:var(--text-2xs); color:var(--text-tertiary);">@name</code>
+                </div>
+            }
+        </div>
+    </section>
+
+</div>
+
+@* The single app-root toast stack (MT-05). Placed once; ToastService drives it. *@
+<ToastStack />
+
+@code {
+    private bool _dark;
+
+    // MT-05 demo state.
+    private bool _dialogOpen;
+    private DialogTone _dialogTone = DialogTone.Accent;
+    private string _dialogIcon = "database-backup";
+    private string? _dialogResult;
+    private string? _dialogTarget = "acme_local";
+    private bool _dialogKeep = true;
+    private int _liveProgress;
+
+    // MT-06 demo state.
+    private IReadOnlyList<object> _selectedSnapshots = [];
+    private string? _openedSnapshot;
+
+    private sealed record SnapshotRow(string Id, string Created, string Environment, string Type, string State);
+
+    private readonly List<SnapshotRow> _snapshots =
+    [
+        new("s1", "2026-07-21 02:00", "Production", "Automatic", "Available"),
+        new("s2", "2026-07-20 14:12", "Production", "Manual", "Available"),
+        new("s3", "2026-07-20 02:00", "Acceptance", "Automatic", "Available"),
+        new("s4", "2026-07-19 09:41", "Test", "Pipeline", "Failed"),
+    ];
+
+    private readonly List<SnapshotRow> _noSnapshots = [];
+
+    private List<DataColumn<SnapshotRow>> _snapshotColumns = [];
+
+    private readonly List<LogLine> _logLines =
+    [
+        new("pg_restore --clean --if-exists --no-owner acme_local", LogLevel.Cmd, "02:14:01"),
+        new("Downloading backup (2.4 GB)…", LogLevel.Info, "02:14:01"),
+        new("Download complete — integrity check passed", LogLevel.Success, "02:14:48"),
+        new("Dropping & recreating schema", LogLevel.Info, "02:14:49"),
+        new("terminating 3 open connections", LogLevel.Warn, "02:14:49"),
+        new("Importing into acme_local", LogLevel.Info, "02:14:50"),
+        new("relation \"account\" imported (14,201 rows)", LogLevel.Info, "02:15:22"),
+        new("could not resolve extension \"pg_trgm\" — skipped", LogLevel.Error, "02:15:23"),
+        new("Backup restored to acme_local (2.4 GB)", LogLevel.Success, "02:16:04"),
+    ];
+
+    private int _logCounter;
+
+    // MT-03 demo state — proves OnClick/OnRemove wiring, not part of any component.
+    private int _clicks;
+    private bool _loadingDemo;
+    private readonly List<string> _tags = ["acme_local", "portal_test", "billing_acc"];
+
+    // MT-04 demo state — proves the @bind-Value/@bind-Checked/@bind-SelectedValue wiring.
+    private string? _host = "localhost";
+    private string? _dataDir = @"C:\MendixTools\data";
+    private string? _password = "postgres";
+    private bool _revealPassword;
+    private string? _env = "prod";
+    private string? _branch = "main";
+    private bool _keepFile = true;
+    private bool _verifyChecksum = true;
+    private string? _strategy = "clean";
+    private string? _themeChoice = "light";
+    private bool _autoRefresh = true;
+    private bool _keepFiles = true;
+    private bool _smallSwitch;
+    private bool _mediumSwitch = true;
+    private string? _activeTab = "overview";
+
+    private static readonly List<SelectOption> _envOptions =
+    [
+        new("prod", "Acme Insurance · Production"),
+        new("accp", "Acme Insurance · Acceptance"),
+        new("test", "Acme Insurance · Test"),
+    ];
+
+    private static readonly List<SelectOption> _strategyOptions =
+    [
+        new("clean", "Clean restore"),
+        new("merge", "Merge into existing"),
+    ];
+
+    private static readonly List<SelectOption> _regionOptions =
+    [
+        new("eu", "eu-west-1"),
+        new("us", "us-east-1"),
+    ];
+
+    private static readonly List<TabItem> _tabItems =
+    [
+        new("overview", "Overview", Icon: "layout-grid"),
+        new("backups", "Backups", Icon: "database-backup", Count: 12),
+        new("logs", "Logs", Icon: "terminal", Count: 3),
+        new("settings", "Settings", Icon: "settings"),
+    ];
+
+    private sealed class SelectableRow(string name)
+    {
+        public string Name { get; } = name;
+        public bool Selected { get; set; }
+    }
+
+    private readonly List<SelectableRow> _rows =
+    [
+        new("2026-07-21 02:00 · Automatic"),
+        new("2026-07-20 14:12 · Manual"),
+        new("2026-07-20 02:00 · Automatic"),
+    ];
+
+    private string SelectAllLabel => $"Select all ({_rows.Count(r => r.Selected)}/{_rows.Count})";
+
+    private void ToggleAllRows(bool value)
+    {
+        foreach (var row in _rows)
+        {
+            row.Selected = value;
+        }
+    }
+
+    private const string RowStyle = "display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); margin-bottom:var(--space-4);";
+    private const string EyebrowStyle = "font-size:var(--text-2xs); letter-spacing:var(--tracking-wider); text-transform:uppercase; color:var(--text-tertiary); margin-bottom:var(--space-2);";
+
+    protected override void OnInitialized()
+    {
+        Toasts.OnChange += OnToastsChanged;
+
+        _snapshotColumns =
+        [
+            new DataColumn<SnapshotRow> { Key = "created", Header = "Created", Mono = true, Value = r => r.Created },
+            new DataColumn<SnapshotRow> { Key = "env", Header = "Environment", Render = r => @<Tag>@r.Environment</Tag> },
+            new DataColumn<SnapshotRow>
+            {
+                Key = "type", Header = "Type",
+                Render = r => @<Badge Tone="@TypeTone(r.Type)" Size="BadgeSize.Sm">@r.Type</Badge>
+            },
+            new DataColumn<SnapshotRow>
+            {
+                Key = "state", Header = "State",
+                Render = r => @<Badge Tone="@(r.State == "Failed" ? BadgeTone.Danger : BadgeTone.Success)" Dot>@r.State</Badge>
+            },
+            new DataColumn<SnapshotRow>
+            {
+                Key = "actions", Header = "", Align = ColumnAlign.Right,
+                Render = r => @<div style="display:inline-flex; gap:var(--space-1); justify-content:flex-end;">
+                    @if (r.State != "Failed")
+                    {
+                        <Tooltip Label="Restore to local Postgres">
+                            <IconButton Icon="database-backup" AriaLabel="Restore" Size="ControlSize.Sm" />
+                        </Tooltip>
+                        <Tooltip Label="Download archive">
+                            <IconButton Icon="download" AriaLabel="Download" Size="ControlSize.Sm" />
+                        </Tooltip>
+                    }
+                </div>
+            },
+        ];
+    }
+
+    private static BadgeTone TypeTone(string type) => type switch
+    {
+        "Manual" => BadgeTone.Accent,
+        "Pipeline" => BadgeTone.Package,
+        _ => BadgeTone.Neutral,
+    };
+
+    private void OnToastsChanged() => InvokeAsync(StateHasChanged);
+
+    private void OpenDialog(DialogTone tone, string icon)
+    {
+        _dialogTone = tone;
+        _dialogIcon = icon;
+        _dialogResult = null;
+        _dialogOpen = true;
+    }
+
+    private void CloseDialog()
+    {
+        _dialogOpen = false;
+        _dialogResult ??= "cancelled";
+    }
+
+    private void ConfirmDialog()
+    {
+        _dialogResult = $"confirmed → {_dialogTarget} (keep-file: {_dialogKeep})";
+        _dialogOpen = false;
+    }
+
+    private async Task RunProgressDemo()
+    {
+        _liveProgress = 0;
+        for (var p = 0; p <= 100; p += 10)
+        {
+            _liveProgress = p;
+            StateHasChanged();
+            await Task.Delay(220);
+        }
+    }
+
+    private void AppendLogLine()
+    {
+        _logCounter++;
+        var level = (_logCounter % 4) switch
+        {
+            0 => LogLevel.Warn,
+            1 => LogLevel.Success,
+            2 => LogLevel.Error,
+            _ => LogLevel.Info,
+        };
+        _logLines.Add(new LogLine($"appended line #{_logCounter} at tail", level, DateTime.Now.ToString("HH:mm:ss")));
+    }
+
+    private void Load5000Lines()
+    {
+        _logLines.Clear();
+        for (var i = 1; i <= 5000; i++)
+        {
+            var level = (i % 50 == 0) ? LogLevel.Success : (i % 37 == 0) ? LogLevel.Error : (i % 17 == 0) ? LogLevel.Warn : LogLevel.Info;
+            _logLines.Add(new LogLine($"line {i:D4} — pg_restore progress token {Guid.NewGuid():N}", level, $"03:{i / 60 % 60:D2}:{i % 60:D2}"));
+        }
+    }
+
+    public void Dispose() => Toasts.OnChange -= OnToastsChanged;
+
+    private void CountClick() => _clicks++;
+
+    private async Task RunLoadingDemo()
+    {
+        _loadingDemo = true;
+        await Task.Delay(1500);
+        _loadingDemo = false;
+    }
+
+    private void RemoveTag(string tag) => _tags.Remove(tag);
+
+    private void ResetTags()
+    {
+        _tags.Clear();
+        _tags.AddRange(["acme_local", "portal_test", "billing_acc"]);
+    }
+
+    private static readonly string[] Swatches =
+    [
+        "--bg-app", "--bg-surface", "--accent", "--success", "--warning",
+        "--danger", "--info", "--db", "--package", "--text-primary",
+        "--text-secondary", "--border",
+    ];
+
+    private async Task ToggleThemeAsync()
+    {
+        _dark = !_dark;
+        // MT-07 owns the real persisted toggle; this only flips data-theme to verify tokens.
+        await Js.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", _dark ? "dark" : "light");
+    }
+}

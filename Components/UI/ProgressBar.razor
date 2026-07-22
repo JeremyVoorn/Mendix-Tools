@@ -1,0 +1,73 @@
+@* Mendix Tools — ProgressBar (MT-05). Faithful port of
+   docs/design-system/components/feedback/ProgressBar.jsx; styles in
+   wwwroot/css/components.css (.mxt-progress*). Determinate fill transitions on
+   --duration-slow; indeterminate runs the mxt-indet sweep. Optional label +
+   mono percentage (percentage hidden while indeterminate, per the JSX).
+   Tone accent (default) | success | warning | danger | db | package.
+   Usage: <ProgressBar Value="62" Label="Importing into acme_local" Tone="ProgressTone.Db" /> *@
+@namespace Mendix_Tools.Components.UI
+
+<div class="mxt-progress" style="@Style" @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(Label) || (ShowValue && !Indeterminate))
+    {
+        <div class="mxt-progress__meta">
+            @if (!string.IsNullOrEmpty(Label))
+            {
+                <span class="mxt-progress__label">@Label</span>
+            }
+            @if (ShowValue && !Indeterminate)
+            {
+                <span class="mxt-progress__value">@Percent%</span>
+            }
+        </div>
+    }
+    <div class="mxt-progress__track mxt-progress__track--@SizeClass"
+         role="progressbar"
+         aria-valuemin="0"
+         aria-valuemax="@Max"
+         aria-valuenow="@(Indeterminate ? (double?)null : Value)"
+         aria-label="@Label">
+        @if (Indeterminate)
+        {
+            <div class="mxt-progress__bar mxt-progress__bar--indet mxt-progress__bar--@ToneClass"></div>
+        }
+        else
+        {
+            <div class="mxt-progress__bar mxt-progress__bar--@ToneClass" style="width:@(Pct.ToString(System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Current value (jsx <c>value</c>, default 0). Clamped to [0, Max].</summary>
+    [Parameter] public double Value { get; set; }
+
+    /// <summary>Value that represents 100% (jsx <c>max</c>, default 100).</summary>
+    [Parameter] public double Max { get; set; } = 100;
+
+    /// <summary>Optional leading label (jsx <c>label</c>).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Bar tone (jsx <c>tone</c>, default accent).</summary>
+    [Parameter] public ProgressTone Tone { get; set; } = ProgressTone.Accent;
+
+    /// <summary>Show the mono percentage (jsx <c>showValue</c>, default true). Hidden while indeterminate.</summary>
+    [Parameter] public bool ShowValue { get; set; } = true;
+
+    /// <summary>Run the indeterminate sweep instead of a fill (jsx <c>indeterminate</c>).</summary>
+    [Parameter] public bool Indeterminate { get; set; }
+
+    /// <summary>Track height (jsx <c>size</c>): sm 4px | md 6px | lg 10px.</summary>
+    [Parameter] public ProgressSize Size { get; set; } = ProgressSize.Md;
+
+    /// <summary>Inline style passthrough (jsx <c>style</c>) — e.g. a width override.</summary>
+    [Parameter] public string? Style { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private double Pct => Max <= 0 ? 0 : Math.Min(100, Math.Max(0, Value / Max * 100));
+    private int Percent => (int)Math.Round(Pct);
+    private string ToneClass => Tone.ToString().ToLowerInvariant();
+    private string SizeClass => Size.ToString().ToLowerInvariant();
+}
