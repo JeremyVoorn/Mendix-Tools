@@ -553,3 +553,91 @@ html,body{height:100%;}
 
 .mxt-content{flex:1;overflow:auto;padding:24px;}
 .mxt-content__inner{max-width:var(--content-max);margin:0 auto;}
+
+/* ===================================================================== */
+/* MT-10 — Environments dashboard. APPEND-ONLY: everything below this     */
+/* banner is new for the mock-first Environments screen; nothing above is */
+/* modified. Ports ui_kits/app/EnvironmentsScreen.jsx (Stat + EnvCard) as */
+/* amended by D1 (no region / no DB size). Reuses .mxt-card/.mxt-spinner.  */
+/* ===================================================================== */
+
+/* Visually-hidden heading so Routes.razor FocusOnNavigate Selector="h1"
+   has a real target; the visible title lives in the topbar (PageHeader). */
+.mxt-visually-hidden{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+
+.mxt-env-page{display:flex;flex-direction:column;gap:20px;}
+
+/* --- Stat row (JSX Stat) --- */
+.mxt-stat-row{display:flex;gap:14px;flex-wrap:wrap;}
+.mxt-stat{display:flex;align-items:center;gap:10px;}
+.mxt-stat__icon{
+  width:34px;height:34px;border-radius:var(--radius-lg);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+}
+.mxt-stat__value{
+  font-family:var(--font-mono);font-size:var(--text-2xl);font-weight:500;
+  line-height:1;letter-spacing:-0.02em;
+}
+.mxt-stat__label{font-size:var(--text-xs);color:var(--text-tertiary);margin-top:4px;}
+.mxt-stat__sub{color:var(--text-tertiary);}
+
+/* --- Section headers (licensed + collapsible sandbox group) --- */
+.mxt-env-section__head{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;
+}
+.mxt-env-section__title{font-size:var(--text-md);font-weight:var(--fw-semibold);}
+.mxt-env-section__toggle{
+  display:flex;align-items:center;gap:8px;width:100%;padding:0;margin-bottom:12px;
+  background:transparent;border:0;cursor:pointer;color:var(--text-primary);
+  font-family:var(--font-sans);
+}
+.mxt-env-section__count{
+  font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-tertiary);
+}
+.mxt-env-chevron{
+  color:var(--text-tertiary);flex-shrink:0;
+  transition:transform var(--duration-fast) var(--ease-standard);
+}
+.mxt-env-chevron--open{transform:rotate(180deg);}
+
+/* --- Environment card grid (JSX EnvCard) --- */
+.mxt-env-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;
+}
+.mxt-envcard__head{
+  padding:14px 15px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+}
+.mxt-envcard__ident{min-width:0;}
+.mxt-envcard__app{
+  font-size:var(--text-md);font-weight:var(--fw-semibold);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.mxt-envcard__meta{display:flex;align-items:center;gap:6px;margin-top:3px;}
+
+.mxt-envcard__grid{
+  display:grid;grid-template-columns:1fr 1fr 1fr;
+  border-top:var(--border-w) solid var(--border-subtle);
+}
+.mxt-envcard__cell{padding:10px 15px;min-width:0;}
+.mxt-envcard__cell + .mxt-envcard__cell{
+  border-left:var(--border-w) solid var(--border-subtle);
+}
+.mxt-envcard__key{
+  font-size:var(--text-2xs);color:var(--text-tertiary);
+  text-transform:uppercase;letter-spacing:0.05em;
+}
+.mxt-envcard__val{font-family:var(--font-mono);font-size:var(--text-sm);margin-top:3px;}
+.mxt-envcard__val--trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mxt-envcard__loading{display:inline-flex;align-items:center;color:var(--text-tertiary);}
+
+.mxt-envcard__actions{
+  display:flex;align-items:center;gap:6px;padding:10px 15px;
+  border-top:var(--border-w) solid var(--border-subtle);
+}
+.mxt-envcard__spacer{margin-left:auto;}
+
+/* Extra-small spinner for the lazy "last backup" cell. */
+.mxt-spinner--xs{width:10px;height:10px;border-width:2px;}

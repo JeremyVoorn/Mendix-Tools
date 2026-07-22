@@ -23,12 +23,17 @@ public static class MauiProgram
         builder.Services.AddSingleton<Mendix_Tools.Components.Layout.ThemeService>();
         builder.Services.AddSingleton<Mendix_Tools.Components.Layout.ShellState>();
 
-        // ── MT-08 metadata store (DI) — merge point with MT-10; keep this block intact ──
+        // ── MT-08 metadata store (DI) ──
         // UI-agnostic SQLite store in the MAUI app-data directory. Registered as a
         // singleton (a connection is opened per operation, so it is safe to share).
         var metadataDbPath = Path.Combine(FileSystem.AppDataDirectory, "mendixtools.db");
         builder.Services.AddSingleton<IMetadataStore>(_ => new SqliteMetadataStore(metadataDbPath));
-        // ── end MT-08 metadata store (DI) ──────────────────────────────────────────────
+
+        // ── MT-10 Environments seam ──
+        // The dashboard talks only to IEnvironmentService; MT-20 swaps this one line for
+        // the real Deploy-v1/Backups-v2 client with no page changes. Mock carries no state.
+        builder.Services.AddSingleton<Mendix_Tools.Services.IEnvironmentService,
+            Mendix_Tools.Services.MockEnvironmentService>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

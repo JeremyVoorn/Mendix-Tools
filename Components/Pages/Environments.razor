@@ -1,13 +1,299 @@
-@* MT-07 shell placeholder — the app home ("/"). Replaced by the real dashboard in
-   MT-10 (mock) / MT-20 (wired). Proves nav routing, the active state, and the topbar
-   title + subtitle plumbing. *@
+@* Mendix Tools — Environments dashboard (MT-10, mock-first). Faithful port of
+   docs/design-system/ui_kits/app/EnvironmentsScreen.jsx as amended by D1 (vision N6):
+   stat row + a responsive grid of per-environment cards, grouped licensed-apps-first with
+   personal sandboxes in a separate collapsible group. Data comes from IEnvironmentService
+   (mock today; MT-20 swaps in the real Deploy-v1/Backups-v2 client behind the same seam).
+
+   D1 trims applied: no "Degraded"/"Deploying" status, no region, no live DB size — those
+   fields do not exist on the DTO and no logic is built on them. The "last backup" cell is
+   lazy-loaded per environment (vision N6): cards render immediately and each cell fills as
+   its own IEnvironmentService.GetNewestBackupAsync call returns; sandboxes show "—".
+   Card quick actions are present but disabled with a tooltip (data is mock). *@
 @page "/"
+@using Mendix_Tools.Models
+@using Mendix_Tools.Services
+@inject IEnvironmentService EnvService
+@inject ShellState Shell
+@implements IDisposable
 
-<PageHeader Title="Environments" Subtitle="placeholder · wired in MT-10" />
+<PageHeader Title="Environments" Subtitle="@_subtitle" Actions="RefreshAction" />
 
-<Card Title="Environments" Subtitle="Coming soon">
-    <p style="color:var(--text-secondary);font-size:var(--text-sm);">
-        The environments dashboard lands in MT-10 (mock data) and MT-20 (wired to Deploy
-        API v1). This placeholder confirms the shell routes here as the app home.
-    </p>
-</Card>
+@* Top-level heading for Routes.razor FocusOnNavigate Selector="h1" (visually hidden —
+   the visible screen title lives in the topbar via PageHeader). *@
+<h1 class="mxt-visually-hidden">Environments</h1>
+
+<div class="mxt-env-page">
+    <div class="mxt-stat-row">
+        @StatTile("layout-grid", "Environments", _envCount.ToString(), null, "accent")
+        @StatTile("check-circle-2", "Running", _runningCount.ToString(), null, "success")
+        @* Local DBs + Storage are local-metadata figures (MT-08 store / X1) not available
+           on mock env data — static placeholders here, wired in a later story. *@
+        @StatTile("database", "Local DBs", "3", null, "db")
+        @StatTile("hard-drive", "Storage used", "12 GB", "local", "package")
+    </div>
+
+    <section>
+        <div class="mxt-env-section__head">
+            <div class="mxt-env-section__title">All environments</div>
+            <Tag Tone="TagTone.Accent" Icon="filter">@_licensedApps.Count apps</Tag>
+        </div>
+        <div class="mxt-env-grid">
+            @foreach (var (app, env) in _licensedEnvs)
+            {
+                @EnvCard(app, env)
+            }
+        </div>
+    </section>
+
+    @if (_sandboxEnvs.Count > 0)
+    {
+        <section>
+            <button type="button" class="mxt-env-section__toggle"
+                    aria-expanded="@_showSandboxes.ToString().ToLowerInvariant()"
+                    @onclick="ToggleSandboxes">
+                <Icon Name="chevron-down" Size="16"
+                      Class="@(_showSandboxes ? "mxt-env-chevron mxt-env-chevron--open" : "mxt-env-chevron")" />
+                <span class="mxt-env-section__title">Personal sandboxes</span>
+                <span class="mxt-env-section__count">@_sandboxEnvs.Count</span>
+            </button>
+            @if (_showSandboxes)
+            {
+                <div class="mxt-env-grid">
+                    @foreach (var (app, env) in _sandboxEnvs)
+                    {
+                        @EnvCard(app, env)
+                    }
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<MendixApp> _apps = [];
+    private List<MendixApp> _licensedApps = [];
+    private List<(MendixApp App, MendixEnvironment Env)> _licensedEnvs = [];
+    private List<(MendixApp App, MendixEnvironment Env)> _sandboxEnvs = [];
+
+    private int _envCount;
+    private int _runningCount;
+    private string? _subtitle;
+    private bool _refreshing;
+    private bool _showSandboxes;
+
+    // Per-environment "last backup" cell state, keyed by EnvironmentId (vision N6 lazy fill).
+    private readonly Dictionary<string, BackupCell> _backups = new();
+    private CancellationTokenSource _cts = new();
+
+    private enum CellState { Loading, Loaded }
+
+    private readonly record struct BackupCell(CellState State, DateTimeOffset? Value);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _apps = await EnvService.GetAppsAsync(_cts.Token);
+
+        _licensedApps = _apps.Where(a => !a.IsSandbox).ToList();
+        _licensedEnvs = _licensedApps
+            .SelectMany(a => a.Environments, (a, e) => (a, e))
+            .ToList();
+        _sandboxEnvs = _apps.Where(a => a.IsSandbox)
+            .SelectMany(a => a.Environments, (a, e) => (a, e))
+            .ToList();
+
+        var allEnvs = _apps.SelectMany(a => a.Environments).ToList();
+        _envCount = allEnvs.Count;
+        _runningCount = allEnvs.Count(e => e.Status == EnvironmentStatus.Running);
+        _subtitle = $"{_licensedEnvs.Count} environments · {_licensedApps.Count} customer apps";
+
+        StartBackupLoads();
+    }
+
+    // Kicks off one independent, non-awaited fetch per environment that HAS backups.
+    // Sandboxes are skipped entirely (no backups → the card renders "—" directly).
+    private void StartBackupLoads()
+    {
+        _backups.Clear();
+        foreach (var (app, env) in _licensedEnvs.Concat(_sandboxEnvs))
+        {
+            if (env.IsSandbox)
+            {
+                continue;
+            }
+
+            _backups[env.EnvironmentId] = new BackupCell(CellState.Loading, null);
+            _ = LoadBackupAsync(app, env, _cts.Token);
+        }
+    }
+
+    private async Task LoadBackupAsync(MendixApp app, MendixEnvironment env, CancellationToken ct)
+    {
+        try
+        {
+            var ts = await EnvService.GetNewestBackupAsync(app.ProjectId, env.EnvironmentId, ct);
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _backups[env.EnvironmentId] = new BackupCell(CellState.Loaded, ts);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a refresh — drop silently.
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_refreshing)
+        {
+            return;
+        }
+
+        // Cancel any in-flight lazy loads from the previous cycle.
+        _cts.Cancel();
+        _cts.Dispose();
+        _cts = new CancellationTokenSource();
+
+        _refreshing = true;
+        Shell.SetHeader("Environments", _subtitle, RefreshAction); // show the spinner
+
+        try
+        {
+            // Small pause so the state cycle is visible (mock data returns instantly); proves
+            // the refresh plumbing the wired MT-20 version reuses.
+            await Task.Delay(450, _cts.Token);
+            await LoadAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            return; // navigated away mid-refresh — nothing to restore.
+        }
+
+        _refreshing = false;
+        Shell.SetHeader("Environments", _subtitle, RefreshAction); // clear the spinner
+    }
+
+    private RenderFragment RefreshAction => @<Button Variant="ButtonVariant.Secondary"
+                                                     Icon="refresh-cw"
+                                                     Loading="_refreshing"
+                                                     OnClick="RefreshAsync">Refresh</Button>;
+
+    private void ToggleSandboxes() => _showSandboxes = !_showSandboxes;
+
+    // Screen-local composite (the JSX Stat function). Icon tile tinted by tone-subtle;
+    // mono value; optional " · sub" suffix on the label.
+    private RenderFragment StatTile(string icon, string label, string value, string? sub, string tone)
+    {
+        var iconColor = tone == "accent" ? "var(--accent-text)" : $"var(--{tone})";
+        return
+    @<Card Padding="15px 16px" style="flex:1;min-width:0;">
+        <div class="mxt-stat">
+            <div class="mxt-stat__icon" style="background:var(--@(tone)-subtle);color:@iconColor;">
+                <Icon Name="@icon" Size="17" />
+            </div>
+            <div>
+                <div class="mxt-stat__value">@value</div>
+                <div class="mxt-stat__label">
+                    @label@if (sub is not null){<span class="mxt-stat__sub"> · @sub</span>}
+                </div>
+            </div>
+        </div>
+    </Card>;
+    }
+
+    private RenderFragment EnvCard(MendixApp app, MendixEnvironment env) =>
+    @<Card Padding="0" BodyStyle="display:flex;flex-direction:column;">
+            <div class="mxt-envcard__head">
+                <div class="mxt-envcard__ident">
+                    <div class="mxt-envcard__app">@app.Name</div>
+                    <div class="mxt-envcard__meta">
+                        <Tag>@env.Mode</Tag>
+                        @if (env.Production)
+                        {
+                            <Badge Tone="BadgeTone.Accent" Size="BadgeSize.Sm">prod</Badge>
+                        }
+                    </div>
+                </div>
+                <Badge Tone="@StatusTone(env.Status)" Dot>@StatusLabel(env.Status)</Badge>
+            </div>
+
+            <div class="mxt-envcard__grid">
+                <div class="mxt-envcard__cell">
+                    <div class="mxt-envcard__key">Mendix</div>
+                    <div class="mxt-envcard__val">@(env.MendixVersion ?? "—")</div>
+                </div>
+                <div class="mxt-envcard__cell">
+                    <div class="mxt-envcard__key">Host</div>
+                    <div class="mxt-envcard__val mxt-envcard__val--trunc" title="@env.Url">@env.Url</div>
+                </div>
+                <div class="mxt-envcard__cell">
+                    <div class="mxt-envcard__key">Backup</div>
+                    <div class="mxt-envcard__val">@BackupCellContent(env)</div>
+                </div>
+            </div>
+
+            <div class="mxt-envcard__actions">
+                <Tooltip Label="Available after cloud connection">
+                    <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" Icon="download" Disabled>Backup</Button>
+                </Tooltip>
+                <Tooltip Label="Available after cloud connection">
+                    <Button Size="ControlSize.Sm" Variant="ButtonVariant.Ghost" Icon="external-link" Disabled>Open</Button>
+                </Tooltip>
+                <div class="mxt-envcard__spacer"></div>
+                <Tooltip Label="Available after cloud connection" Placement="TooltipPlacement.Left">
+                    <IconButton Size="ControlSize.Sm" Icon="more-horizontal" AriaLabel="More actions" Disabled />
+                </Tooltip>
+            </div>
+    </Card>;
+
+    private RenderFragment BackupCellContent(MendixEnvironment env) =>
+    @<text>
+        @if (env.IsSandbox)
+        {
+            @* Sandboxes have no backups (vision N6) — no call, no spinner. *@
+            <span>—</span>
+        }
+        else if (_backups.TryGetValue(env.EnvironmentId, out var cell) && cell.State == CellState.Loaded)
+        {
+            <span>@(cell.Value is { } ts ? Relative(ts) : "—")</span>
+        }
+        else
+        {
+            <span class="mxt-envcard__loading" aria-label="Loading last backup">
+                <span class="mxt-spinner mxt-spinner--xs" aria-hidden="true"></span>
+            </span>
+        }
+    </text>;
+
+    private static BadgeTone StatusTone(EnvironmentStatus s) => s switch
+    {
+        EnvironmentStatus.Running => BadgeTone.Success,
+        EnvironmentStatus.Stopped => BadgeTone.Danger,
+        _ => BadgeTone.Neutral, // Empty
+    };
+
+    private static string StatusLabel(EnvironmentStatus s) => s.ToString();
+
+    private static string Relative(DateTimeOffset ts)
+    {
+        var d = DateTimeOffset.Now - ts;
+        if (d < TimeSpan.FromMinutes(1)) return "just now";
+        if (d < TimeSpan.FromHours(1)) return $"{(int)d.TotalMinutes}m ago";
+        if (d < TimeSpan.FromDays(1)) return $"{(int)d.TotalHours}h ago";
+        return $"{(int)d.TotalDays}d ago";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}
