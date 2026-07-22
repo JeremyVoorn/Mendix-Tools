@@ -1,0 +1,15 @@
+@namespace MendixTools.Components.Tests
+
+@* Three tabs bound to one field so we can assert which tab the keyboard math selects. *@
+<Tabs Items="_items" @bind-Value="Active" />
+
+@code {
+    private readonly IReadOnlyList<TabItem> _items =
+    [
+        new TabItem("one", "One"),
+        new TabItem("two", "Two"),
+        new TabItem("three", "Three"),
+    ];
+
+    public string? Active { get; set; }
+}

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using MendixTools.Core.Metadata;
+using Microsoft.Extensions.Logging;
 
 namespace Mendix_Tools;
 
@@ -18,14 +19,28 @@ public static class MauiProgram
 
         // App shell (MT-07): persisted theme + per-page topbar contract. One shell for the
         // app's lifetime in the BlazorWebView, so both are singletons.
+        builder.Services.AddSingleton<Mendix_Tools.Components.Layout.IThemeStore, Mendix_Tools.Components.Layout.MauiThemeStore>();
         builder.Services.AddSingleton<Mendix_Tools.Components.Layout.ThemeService>();
         builder.Services.AddSingleton<Mendix_Tools.Components.Layout.ShellState>();
+
+        // ── MT-08 metadata store (DI) — merge point with MT-10; keep this block intact ──
+        // UI-agnostic SQLite store in the MAUI app-data directory. Registered as a
+        // singleton (a connection is opened per operation, so it is safe to share).
+        var metadataDbPath = Path.Combine(FileSystem.AppDataDirectory, "mendixtools.db");
+        builder.Services.AddSingleton<IMetadataStore>(_ => new SqliteMetadataStore(metadataDbPath));
+        // ── end MT-08 metadata store (DI) ──────────────────────────────────────────────
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
 #endif
 
-        return builder.Build();
+        var app = builder.Build();
+
+        // MT-08 — create the DB file and run migrations on startup (AC: "on first run,
+        // when the app starts, a SQLite DB is created … with schema/migrations").
+        app.Services.GetRequiredService<IMetadataStore>().InitializeAsync().GetAwaiter().GetResult();
+
+        return app;
     }
 }

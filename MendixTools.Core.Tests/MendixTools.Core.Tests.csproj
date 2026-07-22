@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- MT-08 — core-logic xUnit tests. Pure net10.0: references the UI-agnostic core
+         library and exercises the SQLite metadata store against temp-file databases. Also
+         covers ThemeService, whose logic is MAUI-free (persistence behind IThemeStore); the
+         service source is linked in so the real code is tested without the MAUI runtime. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+        <PackageReference Include="xunit" Version="2.9.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\MendixTools.Core\MendixTools.Core.csproj" />
+    </ItemGroup>
+
+    <!-- ThemeService's logic is MAUI-free (persistence behind IThemeStore); link the real
+         source so it is tested directly without referencing the MAUI app project. -->
+    <ItemGroup>
+        <Compile Include="..\Components\Layout\ThemeService.cs" Link="AppServices\ThemeService.cs" />
+    </ItemGroup>
+
+</Project>

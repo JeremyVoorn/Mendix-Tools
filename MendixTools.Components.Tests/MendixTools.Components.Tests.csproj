@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <!-- MT-08 — bUnit component tests. The Razor primitives live in the MAUI app project,
+         which only targets platform TFMs and drags the BlazorWebView static-web-asset
+         pipeline (which collides in a test host). Those primitives have NO MAUI dependency,
+         so this project stays a plain net10.0 Razor project and compiles the REAL component
+         source via <Compile>/link — single source of truth, no MAUI, fast and reliable. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <IsPackable>false</IsPackable>
+        <EnableDefaultCssItems>false</EnableDefaultCssItems>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+        <PackageReference Include="bunit" Version="1.40.0" />
+        <PackageReference Include="xunit" Version="2.9.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    </ItemGroup>
+
+    <!-- Real component source under test, linked from the app project. -->
+    <ItemGroup>
+        <Compile Include="..\Components\UI\LucideIcons.cs" Link="AppComponents\LucideIcons.cs" />
+        <Compile Include="..\Components\UI\Variants.cs" Link="AppComponents\Variants.cs" />
+        <Compile Include="..\Components\UI\Options.cs" Link="AppComponents\Options.cs" />
+    </ItemGroup>
+    <ItemGroup>
+        <RazorComponent Include="..\Components\UI\Icon.razor" Link="AppComponents\Icon.razor" />
+        <RazorComponent Include="..\Components\UI\Checkbox.razor" Link="AppComponents\Checkbox.razor" />
+        <RazorComponent Include="..\Components\UI\Radio.razor" Link="AppComponents\Radio.razor" />
+        <RazorComponent Include="..\Components\UI\Tabs.razor" Link="AppComponents\Tabs.razor" />
+    </ItemGroup>
+
+</Project>

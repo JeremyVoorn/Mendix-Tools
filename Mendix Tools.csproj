@@ -20,6 +20,11 @@
         <EnableDefaultCssItems>false</EnableDefaultCssItems>
         <Nullable>enable</Nullable>
 
+        <!-- MT-08 — the core library and test projects are sibling folders under this
+             MAUI project's directory (the repo root). Keep their sources out of the app's
+             default Compile/Content/Razor globs so their types are not compiled twice. -->
+        <DefaultItemExcludes>$(DefaultItemExcludes);MendixTools.Core\**;MendixTools.Core.Tests\**;MendixTools.Components.Tests\**</DefaultItemExcludes>
+
         <!-- Enable XAML source generation for faster build times and improved performance.
              This generates C# code from XAML at compile time instead of runtime inflation.
              To disable, remove this line.
@@ -70,6 +75,11 @@
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)"/>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)"/>
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0"/>
+    </ItemGroup>
+
+    <!-- MT-08 — UI-agnostic core library (metadata store; later the job engine). -->
+    <ItemGroup>
+        <ProjectReference Include="MendixTools.Core\MendixTools.Core.csproj"/>
     </ItemGroup>
 
 </Project>

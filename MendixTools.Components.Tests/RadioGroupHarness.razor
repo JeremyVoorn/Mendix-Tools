@@ -1,0 +1,10 @@
+@namespace MendixTools.Components.Tests
+
+@* Two Radio options sharing one Name and one bound field — the MT-04 single-selection
+   idiom. Selecting one must clear the previously-selected sibling. *@
+<Radio Name="strategy" Value="clean" Label="Clean restore" @bind-SelectedValue="Selected" />
+<Radio Name="strategy" Value="merge" Label="Merge into existing" @bind-SelectedValue="Selected" />
+
+@code {
+    public string? Selected { get; set; }
+}
