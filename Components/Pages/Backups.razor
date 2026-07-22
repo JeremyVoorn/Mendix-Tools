@@ -1,10 +1,335 @@
-@* MT-07 shell placeholder. Replaced by the real Backups screen in MT-14+. *@
+@* Mendix Tools — Backups list (MT-14, mock-first). Faithful port of
+   docs/design-system/ui_kits/app/BackupsScreen.jsx RECONCILED to the live-verified
+   Backups API v2 snapshot shape (MT-01 spike, docs/spikes/MT-01-auth-model.md §4):
+
+     • The mock's Size column is CUT — the snapshots API returns no size field.
+     • Type is DERIVED from `comment` (Automatic / Pipeline / Manual) — there is no
+       API type field; Manual rows show the human comment (truncated, full on hover).
+     • Failed snapshots render a danger Badge + their API `status_message`, and have no
+       Restore/Download actions.
+     • `expires_at` is displayed (retention varies) rather than assumed.
+     • Response is the paginated `{ total, snapshots[] }` shape — the page shows the
+       total so nothing is silently truncated.
+
+   Data comes from IBackupService (mock today; MT-20 swaps in the real Backups-v2 client
+   behind the same seam). The environment selector is populated from IEnvironmentService
+   (the MT-10 seam) — NO real API call is made in this slice. Restore (MT-17/18) and
+   Download (MT-16) are out of scope here: their row actions render DISABLED inside a
+   tooltip until those stories wire them. *@
 @page "/backups"
+@using Mendix_Tools.Models
+@using Mendix_Tools.Services
+@inject IBackupService BackupService
+@inject IEnvironmentService EnvService
+@inject ShellState Shell
+@implements IDisposable
 
-<PageHeader Title="Backups" />
+<PageHeader Title="Backups" Subtitle="@_subtitle" Actions="RefreshAction" />
 
-<Card Title="Backups" Subtitle="Coming soon">
-    <p style="color:var(--text-secondary);font-size:var(--text-sm);">
-        Snapshot browsing, create, download, and restore land in MT-14 through MT-18.
-    </p>
-</Card>
+@* Top-level heading for Routes.razor FocusOnNavigate Selector="h1" (visually hidden —
+   the visible title lives in the topbar via PageHeader). *@
+<h1 class="mxt-visually-hidden">Backups</h1>
+
+<div class="mxt-backups">
+    <div class="mxt-backups__controls">
+        <Select Label="Source environment"
+                Options="_envOptions"
+                Value="@_selectedEnvId"
+                ValueChanged="OnEnvChangedAsync"
+                Style="width:280px"
+                Disabled="@(_envOptions.Count == 0)" />
+        <div class="mxt-backups__spacer"></div>
+    </div>
+
+    <Card Title="Cloud backups"
+          Subtitle="Restore any snapshot into your local Postgres server"
+          Padding="0"
+          HeaderActions="ListActions">
+        @if (_loading)
+        {
+            <div class="mxt-backups__state">
+                <span class="mxt-spinner" aria-hidden="true"></span>
+                <span>Loading backups…</span>
+            </div>
+        }
+        else if (_error is not null)
+        {
+            <div class="mxt-backups__state" role="alert">
+                <span class="mxt-backups__state-icon"><Icon Name="alert-triangle" Size="26" /></span>
+                <div class="mxt-backups__state-title">Couldn't load backups for this environment</div>
+                <div class="mxt-backups__state-body">@_error</div>
+                <Button Variant="ButtonVariant.Secondary" Icon="refresh-cw" OnClick="RefreshAsync">Try again</Button>
+            </div>
+        }
+        else if (_result is null || _result.Snapshots.Count == 0)
+        {
+            <div class="mxt-backups__state">
+                <span class="mxt-backups__state-icon"><Icon Name="database-backup" Size="26" /></span>
+                <div class="mxt-backups__state-title">No backups for this environment</div>
+                <div class="mxt-backups__state-body">Snapshots taken for this environment will appear here.</div>
+            </div>
+        }
+        else
+        {
+            <DataTable TRow="Snapshot"
+                       Rows="_result.Snapshots"
+                       Columns="_columns"
+                       RowId="s => s.SnapshotId"
+                       Selectable
+                       Selected="_selected"
+                       SelectedChanged="OnSelectionChanged" />
+            <div class="mxt-backups__note">
+                Showing @_result.Snapshots.Count of @_result.Total snapshots@(_result.Total > _result.Snapshots.Count ? " · newest page" : "")
+            </div>
+        }
+    </Card>
+</div>
+
+@code {
+    private IReadOnlyList<SelectOption> _envOptions = [];
+    // EnvironmentId -> (ProjectId, display label) so the seam call gets both keys.
+    private readonly Dictionary<string, (string ProjectId, string Label)> _envIndex = new();
+
+    private string? _selectedEnvId;
+    private string? _subtitle;
+
+    private BackupListResult? _result;
+    private bool _loading = true;
+    private bool _refreshing;
+    private string? _error;
+
+    private List<object> _selected = [];
+    private IReadOnlyList<DataColumn<Snapshot>> _columns = [];
+
+    private CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _columns = BuildColumns();
+        await LoadEnvironmentsAsync();
+        await LoadSnapshotsAsync();
+    }
+
+    private async Task LoadEnvironmentsAsync()
+    {
+        _envIndex.Clear();
+        var options = new List<SelectOption>();
+
+        var apps = await EnvService.GetAppsAsync(_cts.Token);
+        foreach (var app in apps)
+        {
+            foreach (var env in app.Environments)
+            {
+                var label = $"{app.Name} · {env.Mode}";
+                _envIndex[env.EnvironmentId] = (app.ProjectId, label);
+                options.Add(new SelectOption(env.EnvironmentId, label));
+            }
+        }
+
+        _envOptions = options;
+        _selectedEnvId ??= options.FirstOrDefault()?.Value;
+    }
+
+    private async Task LoadSnapshotsAsync()
+    {
+        _loading = true;
+        _error = null;
+        _selected = [];
+
+        if (_selectedEnvId is null || !_envIndex.TryGetValue(_selectedEnvId, out var env))
+        {
+            _result = BackupListResult.Empty;
+            _loading = false;
+            _subtitle = null;
+            return;
+        }
+
+        _subtitle = env.Label;
+        Shell.SetHeader("Backups", _subtitle, RefreshAction);
+
+        try
+        {
+            _result = await BackupService.GetSnapshotsAsync(env.ProjectId, _selectedEnvId, _cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // superseded by a reload / navigation away
+        }
+        catch (Exception ex)
+        {
+            // Never surface a raw exception — state what happened + what to do next.
+            _result = null;
+            _error = MapError(ex);
+        }
+
+        _loading = false;
+    }
+
+    private async Task OnEnvChangedAsync(string? envId)
+    {
+        _selectedEnvId = envId;
+        // Cancel any in-flight load before starting the new one.
+        ResetCts();
+        await LoadSnapshotsAsync();
+    }
+
+    private Task OnSelectionChanged(IReadOnlyList<object> selected)
+    {
+        _selected = [.. selected];
+        return Task.CompletedTask;
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_refreshing)
+        {
+            return;
+        }
+
+        ResetCts();
+        _refreshing = true;
+        Shell.SetHeader("Backups", _subtitle, RefreshAction); // show the spinner
+
+        try
+        {
+            await LoadSnapshotsAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            _refreshing = false;
+            Shell.SetHeader("Backups", _subtitle, RefreshAction); // clear the spinner
+        }
+    }
+
+    private void ResetCts()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        _cts = new CancellationTokenSource();
+    }
+
+    private RenderFragment RefreshAction => @<Button Variant="ButtonVariant.Secondary"
+                                                     Icon="refresh-cw"
+                                                     Loading="_refreshing"
+                                                     OnClick="RefreshAsync">Refresh</Button>;
+
+    // Bulk-download affordance (MT-16). Shown only with a selection; DISABLED until wired.
+    private RenderFragment ListActions =>
+    @<text>
+        @if (_selected.Count > 0)
+        {
+            <Tooltip Label="Available once wired to your account">
+                <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" Icon="download" Disabled>
+                    Download @_selected.Count
+                </Button>
+            </Tooltip>
+        }
+    </text>;
+
+    private List<DataColumn<Snapshot>> BuildColumns() =>
+    [
+        new DataColumn<Snapshot>
+        {
+            Key = "created", Header = "Created", Mono = true,
+            Value = s => s.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+        },
+        new DataColumn<Snapshot>
+        {
+            Key = "type", Header = "Type",
+            Render = snap =>
+        @<div class="mxt-backups__type">
+            <Badge Tone="@TypeTone(snap.Type)" Size="BadgeSize.Sm">@TypeLabel(snap.Type)</Badge>
+            @if (snap.Type == SnapshotType.Manual && !string.IsNullOrWhiteSpace(snap.Comment))
+            {
+                <span class="mxt-backups__comment" title="@snap.Comment">@snap.Comment</span>
+            }
+        </div>,
+        },
+        new DataColumn<Snapshot>
+        {
+            Key = "state", Header = "State",
+            Render = snap =>
+        @<div class="mxt-backups__state-cell">
+            <Badge Tone="@StateTone(snap.State)"
+                   Dot="@(snap.State is SnapshotState.Completed or SnapshotState.Running)"
+                   Size="BadgeSize.Sm">@StateLabel(snap.State)</Badge>
+            @if (snap.State == SnapshotState.Failed && !string.IsNullOrWhiteSpace(snap.StatusMessage))
+            {
+                <span class="mxt-backups__statusmsg" title="@snap.StatusMessage">@snap.StatusMessage</span>
+            }
+        </div>,
+        },
+        new DataColumn<Snapshot>
+        {
+            Key = "expires", Header = "Expires", Mono = true,
+            Value = s => s.ExpiresAt?.ToString("yyyy-MM-dd") ?? "—",
+        },
+        new DataColumn<Snapshot>
+        {
+            Key = "actions", Header = "", Align = ColumnAlign.Right, Width = "180px",
+            Render = snap =>
+        @<div class="mxt-backups__actions">
+            @if (snap.HasActions)
+            {
+                <Tooltip Label="Available once wired to your account">
+                    <Button Size="ControlSize.Sm" Variant="ButtonVariant.Subtle" Icon="database-backup" Disabled>Restore</Button>
+                </Tooltip>
+                <Tooltip Label="Available once wired to your account" Placement="TooltipPlacement.Left">
+                    <IconButton Size="ControlSize.Sm" Icon="download" AriaLabel="Download" Disabled />
+                </Tooltip>
+            }
+        </div>,
+        },
+    ];
+
+    private static string TypeLabel(SnapshotType t) => t switch
+    {
+        SnapshotType.Automatic => "Automatic",
+        SnapshotType.Pipeline => "Pipeline",
+        _ => "Manual",
+    };
+
+    private static BadgeTone TypeTone(SnapshotType t) => t switch
+    {
+        SnapshotType.Automatic => BadgeTone.Info,
+        SnapshotType.Pipeline => BadgeTone.Accent,
+        _ => BadgeTone.Neutral,
+    };
+
+    private static string StateLabel(SnapshotState s) => s switch
+    {
+        SnapshotState.Completed => "Available",
+        SnapshotState.Failed => "Failed",
+        SnapshotState.Running => "Running",
+        _ => "Queued",
+    };
+
+    private static BadgeTone StateTone(SnapshotState s) => s switch
+    {
+        SnapshotState.Completed => BadgeTone.Success,
+        SnapshotState.Failed => BadgeTone.Danger,
+        SnapshotState.Running => BadgeTone.Accent,
+        _ => BadgeTone.Neutral, // Queued
+    };
+
+    // Maps the (mock) failure into a calm "what happened + what to do next" line —
+    // MT-20's real client throws the same shapes (timeout / HTTP status), so this mapping
+    // carries forward. Never renders a stack trace.
+    private static string MapError(Exception ex) => ex switch
+    {
+        TimeoutException => "The request timed out. Check your connection, then Refresh.",
+        HttpRequestException => "Couldn't reach the Mendix API. Check your connection and Settings › Credentials, then Refresh.",
+        UnauthorizedAccessException => "Credential rejected — check Settings › Credentials.",
+        _ => "Something went wrong loading this environment. Check Settings › Credentials, then Refresh.",
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

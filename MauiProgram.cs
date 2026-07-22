@@ -46,6 +46,14 @@ public static class MauiProgram
         builder.Services.AddSingleton<Mendix_Tools.Services.IEnvironmentService,
             Mendix_Tools.Services.MockEnvironmentService>();
 
+        // ── MT-14 Backups seam ──
+        // The Backups screen talks only to IBackupService; MT-20 swaps this one line for the
+        // real Backups API v2 client with no page changes. Mock carries no state, no secrets,
+        // and makes no HTTP call. (Merge note: MT-20 adds a DIFFERENT Services/ file here.)
+        builder.Services.AddSingleton<Mendix_Tools.Services.IBackupService,
+            Mendix_Tools.Services.MockBackupService>();
+        // ── end MT-14 Backups seam ──
+
         // ── MT-11/12/13 Settings (DI) ──
         // Secrets (Mendix API key, Postgres password) live ONLY in the OS vault via
         // ISecretStore→SecureStorage; non-secret prefs (host/port/user/data-dir + the three

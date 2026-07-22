@@ -685,3 +685,51 @@ html,body{height:100%;}
 }
 .mxt-settings__msg--ok{color:var(--success-text);}
 .mxt-settings__msg--error{color:var(--danger-text);}
+
+/* ===================================================================== */
+/* MT-14 — Backups list screen. APPEND-ONLY: everything below is new for  */
+/* the per-environment snapshots list; nothing above is modified. Ports   */
+/* ui_kits/app/BackupsScreen.jsx (controls + Card + DataTable) reconciled  */
+/* to the live Backups-v2 shape (Size column cut; Type derived; failed +   */
+/* expires rendered). Reuses .mxt-card / .mxt-table / .mxt-spinner / the   */
+/* Badge / Tag / Button / Tooltip primitives.                             */
+/* ===================================================================== */
+
+.mxt-backups{display:flex;flex-direction:column;gap:18px;}
+
+/* Controls row (JSX: Select + spacer). Refresh lives in the topbar (PageHeader). */
+.mxt-backups__controls{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;}
+.mxt-backups__spacer{flex:1;}
+
+/* Loading / empty / failed-list states, centered inside the (padding:0) list Card. */
+.mxt-backups__state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:44px 20px;text-align:center;
+  font-size:var(--text-sm);color:var(--text-secondary);
+}
+.mxt-backups__state-icon{color:var(--text-tertiary);line-height:0;}
+.mxt-backups__state-title{font-size:var(--text-md);font-weight:var(--fw-semibold);color:var(--text-primary);}
+.mxt-backups__state-body{color:var(--text-tertiary);max-width:420px;line-height:1.5;}
+
+/* Type cell: derived badge + (for Manual) the human comment, truncated. */
+.mxt-backups__type{display:flex;flex-direction:column;gap:3px;min-width:0;}
+.mxt-backups__comment{
+  font-size:var(--text-xs);color:var(--text-tertiary);
+  max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* State cell: badge + (for failed) the API status_message, truncated with tooltip. */
+.mxt-backups__state-cell{display:flex;flex-direction:column;gap:3px;min-width:0;}
+.mxt-backups__statusmsg{
+  font-size:var(--text-xs);color:var(--danger-text);
+  max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* Right-aligned row actions (disabled Restore + Download, wired in MT-16/MT-17). */
+.mxt-backups__actions{display:flex;gap:6px;justify-content:flex-end;align-items:center;}
+
+/* Pagination note under the table — shows "N of total" so nothing is silently cut. */
+.mxt-backups__note{
+  padding:10px 16px;border-top:var(--border-w) solid var(--border-subtle);
+  font-size:var(--text-xs);color:var(--text-tertiary);
+}
