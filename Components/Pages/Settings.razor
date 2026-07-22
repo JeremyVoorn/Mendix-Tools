@@ -1,12 +1,406 @@
-@* MT-07 shell placeholder. Replaced by the real Settings tabs (Database, Preferences,
-   Credentials) in MT-11, MT-12, MT-13. *@
+@* Mendix Tools — Settings (MT-11 Database, MT-12 Preferences, MT-13 Credentials).
+   Tabbed screen following docs/design-system/ui_kits/app/SettingsScreen.jsx (Tabs + the
+   local Row grid pattern), amended by D1 for the Credentials tab (username + API key; no
+   PAT/scopes/region; Revoke → Remove). Screen-local styles are mxt-settings-* appended to
+   the end of wwwroot/css/components.css.
+
+   Security: every secret (Mendix API key, Postgres password) goes to the OS vault via
+   AppSettingsService → ISecretStore (MAUI SecureStorage) ONLY — never the metadata DB,
+   never Preferences, never a file or log. Stored secret values are never loaded back into
+   a field; the field shows a masked placeholder and a value is written only when the user
+   types a replacement. No Mendix Platform API call and no live DB call is made here; the
+   Database "Test connection" is user-initiated and targets the local Postgres only. *@
 @page "/settings"
+@namespace Mendix_Tools.Components.Pages
+@using Mendix_Tools.Services
+@inject AppSettingsService AppSettings
+@inject ThemeService Theme
+@inject IPostgresProbe Probe
+@inject IFolderPicker FolderPicker
+@inject ShellState Shell
+@inject IJSRuntime Js
+@implements IAsyncDisposable
 
 <PageHeader Title="Settings" />
+<h1 class="mxt-visually-hidden">Settings</h1>
 
-<Card Title="Settings" Subtitle="Coming soon">
-    <p style="color:var(--text-secondary);font-size:var(--text-sm);">
-        Database connection, preferences, and vault-backed credentials land in MT-11,
-        MT-12, and MT-13.
-    </p>
-</Card>
+<div class="mxt-settings">
+    <Tabs Items="_tabs" @bind-Value="_activeTab" />
+
+    @if (_activeTab == "credentials")
+    {
+        <Card Title="Mendix platform"
+              Subtitle="Username and API key used to list environments and pull backups">
+            <HeaderActions>
+                @if (_hasMendixCred)
+                {
+                    <Badge Tone="BadgeTone.Success" Dot>Connected</Badge>
+                }
+                else
+                {
+                    <Badge Tone="BadgeTone.Neutral" Dot>Not configured</Badge>
+                }
+            </HeaderActions>
+            <ChildContent>
+                @Row("Mendix username", "Your Mendix platform login (email).",
+                    @<Input @bind-Value="_mendixUsername" Placeholder="you@example.com" />)
+                @Row("API key",
+                    "Created in your Mendix profile under API Keys. Access per app is controlled by your team permissions (API Rights, Access to Backups, Transport Rights).",
+                    @<Input Mono
+                            Type="@(_revealApiKey ? "text" : "password")"
+                            @bind-Value="_mendixApiKey"
+                            Placeholder="@(_hasStoredKey ? "Stored — enter a new key to replace" : "Your Mendix API key")"
+                            RightSlot="ApiKeyReveal" />)
+
+                <div class="mxt-settings__note">
+                    <Icon Name="key-round" Size="13" />
+                    <span>Stored in the OS credential vault (Windows Credential Manager) — never written to a file or the app database.</span>
+                </div>
+                <div class="mxt-settings__note">
+                    <span>
+                        Remove deletes the key from this machine only. To revoke the key itself, use your
+                        <a href="https://user-settings.mendix.com/link/developersettings" target="_blank" rel="noopener">Mendix profile <Icon Name="external-link" Size="11" /></a>.
+                    </span>
+                </div>
+
+                <div class="mxt-settings__footer">
+                    @if (_credError is not null)
+                    {
+                        <span class="mxt-settings__msg mxt-settings__msg--error">@_credError</span>
+                    }
+                    else if (_credSaved)
+                    {
+                        <span class="mxt-settings__msg mxt-settings__msg--ok"><Icon Name="check-circle-2" Size="15" /> Saved to the vault</span>
+                    }
+                    <Button Variant="ButtonVariant.Secondary" Icon="trash-2" Disabled="!_hasMendixCred" OnClick="RemoveCredentials">Remove</Button>
+                    <Button OnClick="SaveCredentials">Save</Button>
+                </div>
+            </ChildContent>
+        </Card>
+    }
+
+    @if (_activeTab == "database")
+    {
+        <Card Title="Local PostgreSQL" Subtitle="Connection used for restores and dumps">
+            <HeaderActions>
+                @if (_dbReachable == true)
+                {
+                    <StatusDot Status="running" Pulse Label="Reachable" />
+                }
+                else if (_dbReachable == false)
+                {
+                    <StatusDot Status="error" Label="Unreachable" />
+                }
+                else
+                {
+                    <StatusDot Status="idle" Label="Unknown" />
+                }
+            </HeaderActions>
+            <ChildContent>
+                @Row("Host & port", null,
+                    @<div class="mxt-settings__pair">
+                        <Input Mono @bind-Value="_dbHost" LeftIcon="server" Style="flex:1" />
+                        <Input Mono @bind-Value="_dbPort" Style="width:100px" aria-label="Port" />
+                    </div>)
+                @Row("Credentials", null,
+                    @<div class="mxt-settings__pair">
+                        <Input Mono @bind-Value="_dbUsername" Style="flex:1" aria-label="Database username" />
+                        <Input Mono
+                               Type="@(_revealDbPassword ? "text" : "password")"
+                               @bind-Value="_dbPassword"
+                               Style="flex:1"
+                               aria-label="Database password"
+                               Placeholder="@(_hasStoredDbPassword ? "Stored — enter to replace" : "Password")"
+                               RightSlot="DbPasswordReveal" />
+                    </div>)
+                @Row("Data directory", "Where restored .backup files and dumps are written. Created on save if missing.",
+                    @<div class="mxt-settings__pair">
+                        <Input Mono @bind-Value="_dataDir" LeftIcon="folder" Style="flex:1" Placeholder="e.g. C:\MendixTools\data" />
+                        <Button Variant="ButtonVariant.Secondary" Icon="folder" OnClick="BrowseDataDir">Browse</Button>
+                    </div>)
+
+                <div class="mxt-settings__footer">
+                    @if (_dbTestResult is { Success: true } okResult)
+                    {
+                        <span class="mxt-settings__msg mxt-settings__msg--ok">
+                            <Icon Name="check-circle-2" Size="15" /> @okResult.ServerVersion · @okResult.ElapsedMs ms
+                        </span>
+                    }
+                    else if (_dbTestResult is { Success: false } failResult)
+                    {
+                        <span class="mxt-settings__msg mxt-settings__msg--error">
+                            <Icon Name="alert-triangle" Size="15" /> @failResult.Message
+                        </span>
+                    }
+                    else if (_dbSaveError is not null)
+                    {
+                        <span class="mxt-settings__msg mxt-settings__msg--error">@_dbSaveError</span>
+                    }
+                    else if (_dbSaved)
+                    {
+                        <span class="mxt-settings__msg mxt-settings__msg--ok"><Icon Name="check-circle-2" Size="15" /> Saved</span>
+                    }
+                    <Button Variant="ButtonVariant.Secondary" Icon="plug" Loading="_testing" OnClick="TestConnection">Test connection</Button>
+                    <Button OnClick="SaveDatabase">Save</Button>
+                </div>
+            </ChildContent>
+        </Card>
+    }
+
+    @if (_activeTab == "preferences")
+    {
+        <Card Title="Preferences">
+            @Row("Theme", "Also toggled from the sidebar.",
+                @<div class="mxt-settings__stack">
+                    <Radio Name="mxt-theme-pref" Value="light" Label="Light"
+                           SelectedValue="@Theme.Current" SelectedValueChanged="OnThemeChanged" />
+                    <Radio Name="mxt-theme-pref" Value="dark" Label="Dark"
+                           SelectedValue="@Theme.Current" SelectedValueChanged="OnThemeChanged" />
+                </div>)
+            @Row("Auto-refresh", "Poll environment status in the background (consumed by the Environments dashboard).",
+                @<Switch Label="Every 30 seconds" Checked="AppSettings.AutoRefreshEnabled" CheckedChanged="OnAutoRefreshChanged" />)
+            @Row("Backups", "Behaviour after a restore or download completes.",
+                @<div class="mxt-settings__stack">
+                    <Switch Label="Keep downloaded .backup files" Checked="AppSettings.KeepBackupFilesAfterRestore" CheckedChanged="OnKeepBackupChanged" />
+                    <Switch Label="Verify checksum after download" Checked="AppSettings.VerifyChecksumAfterDownload" CheckedChanged="OnVerifyChecksumChanged" />
+                </div>)
+        </Card>
+    }
+</div>
+
+@code {
+    // JSX default tab is "credentials"; order matches SettingsScreen.jsx.
+    private static readonly IReadOnlyList<TabItem> _tabs =
+    [
+        new("credentials", "Credentials", "key-round"),
+        new("database", "Database", "database"),
+        new("preferences", "Preferences", "sliders-horizontal"),
+    ];
+
+    private string? _activeTab = "credentials";
+    private IJSObjectReference? _module;
+
+    // ── Credentials (MT-13) ──
+    private string _mendixUsername = "";
+    private string _mendixApiKey = "";       // never loaded from the vault; write-only field
+    private bool _hasStoredKey;              // a key is present in the vault
+    private bool _hasMendixCred;             // both halves present → "Connected" badge
+    private bool _revealApiKey;
+    private string? _credError;
+    private bool _credSaved;
+
+    // ── Database (MT-11) ──
+    private string _dbHost = "";
+    private string _dbPort = "";
+    private string _dbUsername = "";
+    private string _dbPassword = "";         // never loaded from the vault; write-only field
+    private string _dataDir = "";
+    private bool _hasStoredDbPassword;
+    private bool _revealDbPassword;
+    private bool? _dbReachable;              // null = untested (StatusDot "Unknown")
+    private bool _testing;
+    private PostgresProbeResult? _dbTestResult;
+    private string? _dbSaveError;
+    private bool _dbSaved;
+
+    // Reveal toggles passed as the Input RightSlot (attribute form keeps the Row template
+    // arguments free of nested child-content markup, which the Razor parser dislikes).
+    private RenderFragment ApiKeyReveal =>
+        @<IconButton Icon="eye" Size="ControlSize.Sm"
+                     AriaLabel="@(_revealApiKey ? "Hide API key" : "Show API key")"
+                     OnClick="() => _revealApiKey = !_revealApiKey" />;
+
+    private RenderFragment DbPasswordReveal =>
+        @<IconButton Icon="eye" Size="ControlSize.Sm"
+                     AriaLabel="@(_revealDbPassword ? "Hide password" : "Show password")"
+                     OnClick="() => _revealDbPassword = !_revealDbPassword" />;
+
+    /// <summary>Screen-local Row: label + optional hint on the left, control on the right —
+    /// the SettingsScreen.jsx Row grid, kept local (not promoted to a shared primitive).</summary>
+    private RenderFragment Row(string label, string? hint, RenderFragment content) =>
+        @<div class="mxt-settings__row">
+            <div>
+                <div class="mxt-settings__row-label">@label</div>
+                @if (!string.IsNullOrEmpty(hint))
+                {
+                    <div class="mxt-settings__row-hint">@hint</div>
+                }
+            </div>
+            <div>@content</div>
+        </div>;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Non-secret Database prefs (MAUI Preferences) — safe to load into the fields.
+        _dbHost = AppSettings.DbHost;
+        _dbPort = AppSettings.DbPort;
+        _dbUsername = AppSettings.DbUsername;
+        _dataDir = AppSettings.DataDirectory;
+
+        // Secrets (OS vault): load the non-secret username, but NEVER the API key or password
+        // into a field — only whether one is stored, so we can show a masked placeholder.
+        _mendixUsername = await AppSettings.GetMendixUsernameAsync() ?? "";
+        _hasStoredKey = !string.IsNullOrWhiteSpace(await AppSettings.GetMendixApiKeyAsync());
+        _hasMendixCred = _hasStoredKey && !string.IsNullOrWhiteSpace(_mendixUsername);
+        _hasStoredDbPassword = await AppSettings.HasDbPasswordAsync();
+    }
+
+    // ── Credentials handlers (MT-13) ──
+
+    private async Task SaveCredentials()
+    {
+        _credError = null;
+        _credSaved = false;
+
+        if (string.IsNullOrWhiteSpace(_mendixUsername))
+        {
+            _credError = "Enter your Mendix username.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_mendixApiKey) && !_hasStoredKey)
+        {
+            _credError = "Enter your API key.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_mendixApiKey))
+        {
+            await AppSettings.SetMendixCredentialAsync(_mendixUsername.Trim(), _mendixApiKey);
+            _hasStoredKey = true;
+        }
+        else
+        {
+            // Keep the already-stored key; just update the (non-secret) username.
+            await AppSettings.SetMendixUsernameAsync(_mendixUsername.Trim());
+        }
+
+        _mendixApiKey = "";          // clear the write-only field so the value is never retained in UI
+        _revealApiKey = false;
+        _hasMendixCred = _hasStoredKey && !string.IsNullOrWhiteSpace(_mendixUsername);
+        _credSaved = true;
+    }
+
+    private void RemoveCredentials()
+    {
+        AppSettings.RemoveMendixCredential(); // vault-delete only — no server-side revocation
+        _mendixUsername = "";
+        _mendixApiKey = "";
+        _hasStoredKey = false;
+        _hasMendixCred = false;
+        _credSaved = false;
+        _credError = null;
+    }
+
+    // ── Database handlers (MT-11) ──
+
+    private async Task TestConnection()
+    {
+        // User-initiated only. Targets the LOCAL Postgres — never a Mendix API or remote DB.
+        _dbTestResult = null;
+        _dbSaved = false;
+        _dbSaveError = null;
+        _testing = true;
+
+        var port = int.TryParse(_dbPort, out var p) && p is > 0 and <= 65535 ? p : 5432;
+        // Prefer a freshly-typed password; otherwise use the one already in the vault.
+        var password = string.IsNullOrEmpty(_dbPassword)
+            ? await AppSettings.GetDbPasswordAsync()
+            : _dbPassword;
+
+        var info = new PostgresConnectionInfo(_dbHost, port, _dbUsername, password);
+        _dbTestResult = await Probe.TestAsync(info);
+        _dbReachable = _dbTestResult.Success;
+        _testing = false;
+    }
+
+    private async Task SaveDatabase()
+    {
+        _dbSaveError = null;
+        _dbSaved = false;
+        _dbTestResult = null;
+
+        // Non-secret fields → Preferences.
+        AppSettings.DbHost = _dbHost.Trim();
+        AppSettings.DbPort = _dbPort.Trim();
+        AppSettings.DbUsername = _dbUsername.Trim();
+        AppSettings.DataDirectory = _dataDir.Trim();
+
+        // Secret → OS vault, only when a new password was typed.
+        if (!string.IsNullOrEmpty(_dbPassword))
+        {
+            await AppSettings.SetDbPasswordAsync(_dbPassword);
+            _hasStoredDbPassword = true;
+            _dbPassword = "";
+            _revealDbPassword = false;
+        }
+
+        // Create the data directory if it does not exist (MT-11 AC).
+        if (!string.IsNullOrWhiteSpace(_dataDir))
+        {
+            try
+            {
+                Directory.CreateDirectory(_dataDir.Trim());
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                _dbSaveError = "Saved, but the data directory could not be created — check the path and permissions.";
+                return;
+            }
+        }
+
+        _dbSaved = true;
+    }
+
+    private async Task BrowseDataDir()
+    {
+        var picked = await FolderPicker.PickFolderAsync();
+        if (!string.IsNullOrEmpty(picked))
+        {
+            _dataDir = picked;
+        }
+    }
+
+    // ── Preferences handlers (MT-12) — instant effect, no Save button ──
+
+    private async Task OnThemeChanged(string? value)
+    {
+        if (value is null || value == Theme.Current)
+        {
+            return;
+        }
+
+        Theme.Toggle();          // flips + persists via ThemeService (single source of truth)
+        await ApplyThemeAsync(); // reflect immediately in the DOM
+
+        // Nudge the shell so the sidebar theme toggle icon re-renders from ThemeService,
+        // keeping the two controls in sync without reaching into MainLayout (MT-12 two-way).
+        Shell.SetHeader("Settings");
+    }
+
+    private async Task ApplyThemeAsync()
+    {
+        _module ??= await Js.InvokeAsync<IJSObjectReference>("import", "./js/mxt-interop.js");
+        await _module.InvokeVoidAsync("setTheme", Theme.Current);
+    }
+
+    private void OnAutoRefreshChanged(bool value) => AppSettings.AutoRefreshEnabled = value;
+
+    private void OnKeepBackupChanged(bool value) => AppSettings.KeepBackupFilesAfterRestore = value;
+
+    private void OnVerifyChecksumChanged(bool value) => AppSettings.VerifyChecksumAfterDownload = value;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // WebView already torn down — nothing to release.
+            }
+        }
+    }
+}
