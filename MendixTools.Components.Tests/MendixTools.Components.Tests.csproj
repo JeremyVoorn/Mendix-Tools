@@ -11,6 +11,12 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <IsPackable>false</IsPackable>
         <EnableDefaultCssItems>false</EnableDefaultCssItems>
+        <!-- NU1902: AngleSharp (transitive via bUnit) advisory GHSA-pgww-w46g-26qg concerns
+             remote-document fetching. bUnit only parses in-memory rendered markup and never
+             drives AngleSharp networking, so the path is unreachable; this is a test-only
+             project that ships in no product artifact. Suppress to keep builds warning-clean;
+             revisit when bUnit bumps its transitive pin. -->
+        <NoWarn>$(NoWarn);NU1902</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

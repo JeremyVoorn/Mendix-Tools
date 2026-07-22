@@ -25,7 +25,7 @@
          role="progressbar"
          aria-valuemin="0"
          aria-valuemax="@Max"
-         aria-valuenow="@(Indeterminate ? (double?)null : Value)"
+         aria-valuenow="@(Indeterminate ? (double?)null : Math.Clamp(Value, 0, Max))"
          aria-label="@Label">
         @if (Indeterminate)
         {
@@ -67,7 +67,7 @@
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
     private double Pct => Max <= 0 ? 0 : Math.Min(100, Math.Max(0, Value / Max * 100));
-    private int Percent => (int)Math.Round(Pct);
+    private int Percent => (int)Math.Round(Pct, MidpointRounding.AwayFromZero);
     private string ToneClass => Tone.ToString().ToLowerInvariant();
     private string SizeClass => Size.ToString().ToLowerInvariant();
 }

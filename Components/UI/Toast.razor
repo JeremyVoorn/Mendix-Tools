@@ -5,7 +5,7 @@
    call ToastService.Show(...) and let ToastStack render this. *@
 @namespace Mendix_Tools.Components.UI
 
-<div class="mxt-toast mxt-toast--@ToneClass" role="status" aria-live="polite">
+<div class="mxt-toast mxt-toast--@ToneClass" role="status">
     @if (!string.IsNullOrEmpty(EffectiveIcon))
     {
         <span class="mxt-toast__icon mxt-toast__icon--@ToneClass">
