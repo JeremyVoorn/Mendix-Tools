@@ -29,6 +29,17 @@ public static class MauiProgram
         var metadataDbPath = Path.Combine(FileSystem.AppDataDirectory, "mendixtools.db");
         builder.Services.AddSingleton<IMetadataStore>(_ => new SqliteMetadataStore(metadataDbPath));
 
+        // ── MT-09 job engine (DI) ─────────────────────────────────────────────────────
+        // UI-agnostic background-job backbone for the flagship flows (backup download,
+        // restore, deploy). Singleton so jobs survive Blazor navigation; persists terminal
+        // job history via the MT-08 store and writes each job's retained log under app-data.
+        var jobLogDirectory = Path.Combine(FileSystem.AppDataDirectory, "job-logs");
+        builder.Services.AddSingleton<MendixTools.Core.Jobs.IJobEngine>(sp =>
+            new MendixTools.Core.Jobs.JobEngine(
+                sp.GetRequiredService<IMetadataStore>(),
+                logDirectory: jobLogDirectory));
+        // ── end MT-09 job engine ──────────────────────────────────────────────────────
+
         // ── MT-10 Environments seam ──
         // The dashboard talks only to IEnvironmentService; MT-20 swaps this one line for
         // the real Deploy-v1/Backups-v2 client with no page changes. Mock carries no state.
