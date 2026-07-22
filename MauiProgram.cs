@@ -35,6 +35,19 @@ public static class MauiProgram
         builder.Services.AddSingleton<Mendix_Tools.Services.IEnvironmentService,
             Mendix_Tools.Services.MockEnvironmentService>();
 
+        // ── MT-11/12/13 Settings (DI) ──
+        // Secrets (Mendix API key, Postgres password) live ONLY in the OS vault via
+        // ISecretStore→SecureStorage; non-secret prefs (host/port/user/data-dir + the three
+        // preference switches) via ISettingsStore→Preferences. AppSettingsService is the one
+        // typed surface MT-14/16/17/18/20 read. IPostgresProbe backs the user-initiated
+        // "Test connection" against the LOCAL Postgres (Npgsql); IFolderPicker is the
+        // data-directory browse. All singletons — one settings surface for the app lifetime.
+        builder.Services.AddSingleton<Mendix_Tools.Services.ISecretStore, Mendix_Tools.Services.MauiSecretStore>();
+        builder.Services.AddSingleton<Mendix_Tools.Services.ISettingsStore, Mendix_Tools.Services.MauiSettingsStore>();
+        builder.Services.AddSingleton<Mendix_Tools.Services.AppSettingsService>();
+        builder.Services.AddSingleton<Mendix_Tools.Services.IPostgresProbe, Mendix_Tools.Services.NpgsqlPostgresProbe>();
+        builder.Services.AddSingleton<Mendix_Tools.Services.IFolderPicker, Mendix_Tools.Services.MauiFolderPicker>();
+
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();

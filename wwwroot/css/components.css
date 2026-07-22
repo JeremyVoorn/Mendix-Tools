@@ -641,3 +641,47 @@ html,body{height:100%;}
 
 /* Extra-small spinner for the lazy "last backup" cell. */
 .mxt-spinner--xs{width:10px;height:10px;border-width:2px;}
+
+/* ===================================================================== */
+/* MT-11/12/13 — Settings screen. APPEND-ONLY: everything below is new    */
+/* for the Database / Preferences / Credentials tabs; nothing above is    */
+/* modified. Ports the SettingsScreen.jsx Row grid + tab layout (D1 shape */
+/* for Credentials). Reuses .mxt-card / .mxt-tabs / the form primitives.  */
+/* ===================================================================== */
+
+.mxt-settings{display:flex;flex-direction:column;gap:18px;max-width:860px;}
+
+/* SettingsScreen.jsx Row: 220px label column + control column, hairline divider. */
+.mxt-settings__row{
+  display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start;
+  padding:16px 0;border-bottom:var(--border-w) solid var(--border-subtle);
+}
+.mxt-settings__row-label{font-size:var(--text-base);font-weight:var(--fw-medium);}
+.mxt-settings__row-hint{
+  font-size:var(--text-xs);color:var(--text-tertiary);margin-top:3px;line-height:1.45;
+}
+
+/* Side-by-side controls inside one Row (host+port, user+password, path+browse). */
+.mxt-settings__pair{display:flex;gap:10px;align-items:flex-start;}
+
+/* Stacked choice controls inside one Row (theme radios, backup switches). */
+.mxt-settings__stack{display:flex;flex-direction:column;gap:10px;}
+
+/* Vault / revocation helper lines below the credential rows. */
+.mxt-settings__note{
+  display:flex;align-items:flex-start;gap:6px;
+  font-size:var(--text-xs);color:var(--text-tertiary);line-height:1.45;padding-top:12px;
+}
+.mxt-settings__note a{color:var(--accent-text);text-decoration:none;}
+.mxt-settings__note a:hover{text-decoration:underline;}
+
+/* Per-tab footer: inline status message on the left, action buttons on the right. */
+.mxt-settings__footer{
+  display:flex;align-items:center;justify-content:flex-end;gap:10px;padding-top:16px;
+}
+.mxt-settings__msg{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:var(--text-sm);margin-right:auto;
+}
+.mxt-settings__msg--ok{color:var(--success-text);}
+.mxt-settings__msg--error{color:var(--danger-text);}
