@@ -75,6 +75,8 @@
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)"/>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)"/>
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0"/>
+        <!-- MT-20 — IHttpClientFactory typed client (AddHttpClient) for the shared MendixApiClient. -->
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0"/>
         <!-- MT-11 — real local-Postgres "Test connection" probe (NpgsqlPostgresProbe). -->
         <PackageReference Include="Npgsql" Version="10.0.3"/>
     </ItemGroup>

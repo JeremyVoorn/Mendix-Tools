@@ -40,11 +40,35 @@ public static class MauiProgram
                 logDirectory: jobLogDirectory));
         // ── end MT-09 job engine ──────────────────────────────────────────────────────
 
-        // ── MT-10 Environments seam ──
-        // The dashboard talks only to IEnvironmentService; MT-20 swaps this one line for
-        // the real Deploy-v1/Backups-v2 client with no page changes. Mock carries no state.
-        builder.Services.AddSingleton<Mendix_Tools.Services.IEnvironmentService,
-            Mendix_Tools.Services.MockEnvironmentService>();
+        // ── MT-20 Environments wired — OWNS the shared Mendix Platform API client (DI) ──
+        // MERGE POINT with MT-14 (backups list): the shared IMendixApiClient + credential
+        // provider are registered HERE; MT-14 and MT-16 resolve IMendixApiClient and add
+        // their own backups/download services alongside this block (do not re-register the
+        // client). The Environments dashboard still talks only to IEnvironmentService
+        // (the MT-10 seam) — MT-20 swaps the mock for RealEnvironmentService, no page change.
+        //
+        // Auth: Mendix-Username + Mendix-ApiKey are read from the OS vault via
+        // AppSettingsService AT CALL TIME (AppSettingsMendixCredentialProvider), so a
+        // credential change in Settings takes effect without restart; no secret is captured
+        // in a constructor, logged, or written anywhere but the vault.
+        //
+        // No-credentials path (keeps the app runnable without creds): the provider returns
+        // null → the client returns a typed NoCredentials result → RealEnvironmentService
+        // returns an empty app list, so the dashboard renders its calm empty state instead of
+        // throwing on the first call (MT-13 AC: cloud screens don't error when no key stored).
+        //
+        // HttpClient comes from IHttpClientFactory (typed client) — no base address / default
+        // headers on it; the client builds absolute URLs and attaches per-request auth.
+        builder.Services.AddSingleton<Mendix_Tools.Services.IMendixCredentialProvider,
+            Mendix_Tools.Services.AppSettingsMendixCredentialProvider>();
+        builder.Services.AddHttpClient<Mendix_Tools.Services.IMendixApiClient,
+            Mendix_Tools.Services.MendixApiClient>();
+        builder.Services.AddTransient<Mendix_Tools.Services.IEnvironmentService,
+            Mendix_Tools.Services.RealEnvironmentService>();
+        // Offline / /styleguide dev: the MT-10 MockEnvironmentService stays in the codebase
+        // (registered-but-unused). To run the dashboard on mock data, replace the line above
+        // with: AddSingleton<IEnvironmentService, MockEnvironmentService>().
+        // ── end MT-20 ──
 
         // ── MT-11/12/13 Settings (DI) ──
         // Secrets (Mendix API key, Postgres password) live ONLY in the OS vault via

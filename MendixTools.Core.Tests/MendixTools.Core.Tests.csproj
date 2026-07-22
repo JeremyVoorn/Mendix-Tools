@@ -27,4 +27,17 @@
         <Compile Include="..\Components\Layout\ThemeService.cs" Link="AppServices\ThemeService.cs" />
     </ItemGroup>
 
+    <!-- MT-20 — the shared Mendix Platform API client and RealEnvironmentService are
+         MAUI/Blazor-free (HttpClient + interfaces only), so the REAL source is linked here
+         and exercised with a fake HttpMessageHandler — no live API call is ever made.
+         The credential-provider adapter (AppSettingsMendixCredentialProvider) is NOT linked:
+         tests use a fake IMendixCredentialProvider and never touch the vault. -->
+    <ItemGroup>
+        <Compile Include="..\Models\EnvironmentModels.cs" Link="AppServices\EnvironmentModels.cs" />
+        <Compile Include="..\Services\IEnvironmentService.cs" Link="AppServices\IEnvironmentService.cs" />
+        <Compile Include="..\Services\MendixApiContracts.cs" Link="AppServices\MendixApiContracts.cs" />
+        <Compile Include="..\Services\MendixApiClient.cs" Link="AppServices\MendixApiClient.cs" />
+        <Compile Include="..\Services\RealEnvironmentService.cs" Link="AppServices\RealEnvironmentService.cs" />
+    </ItemGroup>
+
 </Project>
