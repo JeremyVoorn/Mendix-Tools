@@ -4,9 +4,9 @@
 > Test spec: the acceptance criteria below are what the Tester/Reviewer verifies.
 > Design spec: where a story says "matches `<file>`", that file in
 > `docs/design-system/` **is** the spec (layout, copy, spacing, states).
-> Last updated: 2026-07-22 — **MT-04 done** (review passed; focus-idiom nuance +
-> bUnit follow-up recorded). MT-01 live verification confirmed API-key auth; findings
-> propagated into MT-10/14/16/20. **Sprint 2 groomed dev-ready:** live field set baked
+> Last updated: 2026-07-22 — **Sprint 2 COMPLETE** (MT-08..MT-13 Done, merged @2839e97,
+> 40 tests green, security review clean). Sprint 3 (flagship flow) is active.
+> Ready-for-dev: MT-14, MT-20. MT-19 still blocked on the D5 decision. **Sprint 2 groomed dev-ready:** live field set baked
 > into MT-10/MT-20; N6 "last backup: keep it, lazy-loaded" decision propagated (open
 > question 3 closed); test-project + bUnit DoD sharpened on MT-08/MT-09; Sprint 2 status
 > flags corrected to reflect the MT-05/06/07 dependency.
@@ -15,9 +15,14 @@
 
 ## Sprint goal (current)
 
-**Sprint 1 — "On-design foundation": the app starts on Windows with the real design
-system (tokens, primitives, shell, dark mode) and the auth-model spike is answered,
-so every screen after this is cheap and unblocked.**
+**Sprint 3 — "The flagship flow": cloud backup → restored, usable local Postgres
+database in one flow, with real progress and a real destructive-action guard.**
+
+> Sprints 1 and 2 are COMPLETE. Sprint 1 (on-design foundation): MT-01..MT-07. Sprint 2
+> (plumbing + first screens): MT-08..MT-13 — metadata store, job engine, mock
+> Environments, and a fully wired Settings screen (Postgres + preferences + vault-backed
+> credentials). The app builds on Windows with 40 green tests and a clean security
+> review (secrets only in `SecureStorage`; no Mendix API call in the codebase yet).
 
 ---
 
@@ -35,7 +40,17 @@ so every screen after this is cheap and unblocked.**
 - **Codebase notes for the Ontwikkelaar:** repo is the fresh MAUI Blazor template
   (namespace `Mendix_Tools`). Template artifacts to replace/remove as stories land:
   `wwwroot/lib/bootstrap`, `wwwroot/app.css`, `Components/Layout/*`,
-  `Components/Pages/{Counter,Weather,Home}.razor`.
+  `Components/Pages/{Counter,Weather,Home}.razor`. *(As of Sprint 1 the layout and
+  sample pages have been removed by MT-07.)*
+- **NavLink note (for later, from MT-07 review):** the sidebar nav items use
+  `Match=NavLinkMatch.All`. When any nav target gains sub-routes (e.g.
+  `/backups/{id}`), switch **that item** to `Prefix`, or it loses its active highlight
+  on the detail route. Relevant once MT-14+/MT-18 introduce detail routes.
+- **Deferred tech-debt (non-blocking review suggestions, no story yet):**
+  (a) **ThemeService `Changed` event (MT-12/MT-09 review)** — give `ThemeService` an
+  event so the Settings theme radios ↔ sidebar toggle sync is explicit rather than
+  relying on the Blazor render cascade. (b) **JobEngine async log write (MT-09
+  review)** — `File.WriteAllLinesAsync`; pinned as do-first on **MT-16/MT-17**.
 
 ### Open questions pushed back to the Visionair
 
@@ -51,6 +66,18 @@ so every screen after this is cheap and unblocked.**
 vision N6; see Resolved decisions below.)*
 
 ### Resolved decisions (propagated)
+
+- **MT-13 credential-verification button — ACCEPTED DEVIATION 2026-07-22.** MT-13's
+  original AC called for a "Test → `GET /api/1/apps`" button to verify the stored
+  credential. It was **deliberately omitted** because the project-wide security rule
+  forbids any Mendix Platform API call from the app (customer production data); the tab
+  uses a **presence-based Connected / Not-configured badge** instead. Reviewer concurred
+  this is correct. **Do not schedule the button** unless the Visionair explicitly
+  reconciles D1 with the security rule (e.g. a later user-triggered, read-only
+  verification carve-out). **Consequence, propagated to MT-14/MT-15/MT-16/MT-20:** there
+  is **no in-app credential pre-validation**, so each story's first real cloud call must
+  handle 401/403 gracefully ("Credentials invalid — check Settings › Credentials"),
+  never assume a validated key or crash.
 
 - **N6 "last backup" — RESOLVED 2026-07-22** (Visionair, recorded in `docs/vision.md`
   N6): **keep it on the card, lazy-loaded.** The environment payload carries no backup
@@ -90,247 +117,12 @@ icons, and all 16 primitives are in place. Sprint 2 is now the active sprint.
 
 ---
 
-## NOW — Sprint 2: Plumbing + first screens (mock env + wired settings)
+## NOW — Sprint 2: Plumbing + first screens — COMPLETE (2026-07-22)
 
-**Sprint 2 goal:** the app remembers things (SQLite), runs background jobs, shows the
-Environments dashboard on mock data, and Settings can talk to a real local Postgres.
-
-> **Slice order & readiness (Sprint 1 complete — all foundation deps satisfied):**
-> - **Every Sprint 2 story is now ready-for-dev today:** MT-08, MT-09, MT-10, MT-11,
->   MT-12, MT-13. All their dependencies (MT-04..MT-07) are Done.
-> - **Core track:** **MT-08** first (deps: none; owns the test scaffold), then **MT-09**
->   (needs MT-08's job-history persistence). These carry the first real unit tests +
->   the MT-04 bUnit follow-up + the ThemeService tests.
-> - **Screen/Settings track:** **MT-10** (mock Environments), **MT-11** (Postgres),
->   **MT-12** (Preferences), **MT-13** (Credentials) can proceed in parallel with the
->   core track.
-> - **Riskiest-first note:** MT-13 (secrets/vault) and MT-11 (real Postgres `[S]`/`[PG]`)
->   carry the most uncertainty in this sprint — pull them early.
-
-### MT-08 — Local metadata store (SQLite) (N4) — **Size: S** — READY (Sprint 2 active)
-*As a consultant, I want the app to remember restored-DB provenance, job/deploy history,
-and cached environment state locally, so that the app has memory Sprintr doesn't.*
-
-**Acceptance criteria**
-- Given first run, when the app starts, then a SQLite DB is created under the app-data
-  directory with schema/migrations for: restored-database provenance (target DB name,
-  source app + environment, snapshot timestamp, Mendix version, size, restored-at),
-  job history (type, phases, result, log path), and cached environment state (payload +
-  fetched-at for staleness display).
-- Given the store lives in a UI-agnostic core project/namespace (`MendixTools.Core` or
-  equivalent), when referenced, then it has no dependency on MAUI/Blazor types
-  (vision principle 7 — CLI-ready).
-- Given a schema change later, when the app starts on an older DB, then migrations
-  upgrade it without data loss (covered by a unit test).
-- CRUD covered by unit tests against a temp-file database.
-
-**Dependencies:** none (does not need MT-07 — this is core, so it is `READY` today,
-ahead of the shell). **Unblocks:** MT-09 (job-history persistence), MT-17 provenance,
-MT-20 (env cache), X4 later.
-**DoD extras:** schema documented in code comments or a short `docs/` note.
-**No test project exists yet (flagged in MT-02 review):** MT-08 and MT-09 share one
-test-scaffold DoD — whichever lands first creates it and wires it into the solution,
-running green on Windows. Because MT-09 depends on MT-08, **MT-08 lands first and owns
-the scaffold.** The scaffold is **two projects**: an **xUnit core-logic project** (e.g.
-`MendixTools.Core.Tests`, referencing the UI-agnostic core) and a **bUnit component
-project** (referencing the Blazor components) — MT-04's UI behaviours cannot be tested
-from the core project.
-**bUnit follow-up (from MT-04 review) — named here so it cannot be lost:** once the
-bUnit project exists, add coverage for the three deviation-prone MT-04 behaviours:
-(1) **Checkbox mixed→true** (an indeterminate checkbox toggles to checked, not to
-unchecked); (2) **Radio group single-selection** (selecting one option clears the
-previously selected sibling); (3) **Tabs Arrow/Home/End index math** (ArrowRight/Left
-wrap, Home selects first, End selects last). If MT-08 ships before the Blazor project
-is test-ready, MT-09 completes the bUnit half — but the three behaviours are DoD for
-whichever story closes the scaffold.
-**ThemeService as the cheap first target (from MT-05/06/07 reviews):** alongside the
-job-engine and bUnit trio, add unit tests for `ThemeService` — default-light, toggle
-flips the theme, and Preferences round-trip (persist and restore across a simulated
-restart). Low-cost, exercises the scaffold end to end.
-
----
-
-### MT-09 — Shared job engine (core) (N5) — **Size: M** — **BLOCKED(MT-08)**
-*As a consultant, I want long operations (restore, download, deploy) to run as
-background jobs with phases, progress, and logs that survive navigation, so that I
-never babysit a screen.*
-
-**Acceptance criteria**
-- Given the core library, when a job is started, then it exposes: an ordered set of
-  named **phases** (e.g. "Downloading backup" → "Dropping & recreating schema" →
-  "Importing into acme_local"), **progress** (0–100 or indeterminate per phase),
-  streamed **log lines** with level, terminal states (succeeded / failed / cancelled),
-  and cooperative **cancel**.
-- Given a running job, when the user navigates to another screen and back, then the
-  job is still running and its live state re-renders (jobs live in a singleton service;
-  Blazor components subscribe/unsubscribe to state-change events).
-- Given a job fails, when its state is inspected, then the failure message states what
-  happened and the log is retained (persisted via MT-08 job history).
-- Given cancel is requested mid-phase, when the job supports it, then it stops at the
-  next safe point and ends in state `cancelled` (unit-tested with a fake job).
-- Scope guard: **no** scheduling, queues, retries, or persistence-across-restart —
-  phase + progress + lines + cancel only.
-- The engine has no MAUI/Blazor dependency; unit tests cover state transitions,
-  event ordering, and cancellation.
-
-**Dependencies:** MT-08 (job-history persistence — the engine writes terminal state and
-log path there; core-only, so it does **not** need MT-07). **Unblocks:** MT-16, MT-17,
-MT-18.
-**DoD extras:** the job engine is the **home for the first real core unit tests** —
-state transitions, phase/log event ordering, and cooperative cancellation, all against
-a fake job, must run green (see the AC scope guard). The shared test scaffold is owned
-by MT-08 (lands first); if for any reason MT-08 has not closed the **bUnit** half, this
-story does, covering the three pinned MT-04 behaviours by name: **Checkbox mixed→true**,
-**Radio group single-selection**, and **Tabs Arrow/Home/End index math** (definitions
-in MT-08's DoD).
-
----
-
-### MT-10 — Environments dashboard, mock-first (N6a) — **Size: M** — READY
-*As a consultant, I want one dashboard showing every app and environment across all my
-customers, so that I see the state of everything without opening a single Sprintr tab.*
-
-**Acceptance criteria**
-- Given `ui_kits/app/EnvironmentsScreen.jsx` and its mock data (3 customers,
-  6 environments, versions 9.24–10.12), when the Environments page renders, then it
-  matches the mock **as amended by D1's field set (vision N6)**: stat row (aggregate
-  counts), environment cards grouped per app with status badge/StatusDot
-  (**Running/Stopped/Empty only**), Mendix version (mono), host (`Url`, mono), mode,
-  and a production marker; card quick actions (Backup, Open, overflow) present but
-  **disabled with tooltips** ("Available after cloud connection") since data is mock.
-- Given the fields **trimmed by D1** — "Degraded"/"Deploying" statuses, region, live
-  DB size — when the page renders, then they do **not** appear on cards, and the mock
-  data/annotations make clear no logic may be built on them.
-- Given the **live-verified environment field set** (MT-01, 2026-07-22), when the mock
-  data and environment DTO are shaped, then the DTO models exactly the fields the real
-  Deploy-v1 payload returns — `Url`, `Mode`, `Status`, `ModelVersion`, `MendixVersion`,
-  `Production`, `Instances`, `MemoryPerInstance`, `TotalMemory`, `EnvironmentId`,
-  `RuntimeLayer` — with **`MendixVersion`/`ModelVersion`/`RuntimeLayer` nullable**
-  (sandbox environments return none). The card renders: status badge/StatusDot, Mendix
-  version (mono), host (`Url`, mono), mode, production marker. `Instances`,
-  `MemoryPerInstance`, `TotalMemory`, `EnvironmentId`, `RuntimeLayer` are carried on the
-  DTO but **not shown on the card in v1** (noted for later use, so MT-20 reuses the same
-  shape). Mendix version **stays** on cards — confirmed returned for licensed nodes
-  (e.g. `10.24.16.96987`) — and renders **"—" for sandboxes**.
-- Given the live-verified apps list (`AppId`/`Name`/`ProjectId`/`Url`, mixing personal
-  sandboxes with licensed customer apps), when the mock data is shaped, then it includes
-  at least one **personal sandbox** app (`Mode = "Sandbox"`, leaner env payload) grouped
-  or filtered distinctly from licensed customer apps, so sandboxes cannot drown the
-  customer apps — proving the grouping/filter MT-20 will reuse against the real list.
-- Given the **N6 "last backup" decision (keep it, lazy-loaded)**, when a card first
-  renders, then its "Backup" cell shows a loading placeholder and fills **independently
-  per environment** as a separate `IEnvironmentService` call returns the newest backup
-  timestamp — the card never blocks on it. In the mock, this is simulated with a
-  per-env delay so the lazy fill is visibly proven; **sandbox cards show "—"** (no
-  backups). This mirrors the real MT-20 path, where the same seam call maps to the
-  single Backups-v2 snapshots call per env (newest `created_at`) that MT-14 makes.
-- Given the topbar Refresh action, when clicked, then the mock data visibly re-renders
-  (spinner/state cycle) — proving the refresh plumbing the wired version will reuse.
-- Given the mock data lives behind an **`IEnvironmentService` seam**, when MT-20 later
-  swaps in the real Deploy-v1 client, then the page needs no structural changes. This
-  story ships the seam with **one mock implementation registered in DI now**; the
-  interface must expose (a) list apps+environments and (b) fetch newest-backup timestamp
-  per environment, so the real Deploy-v1 + Backups-v2 implementation in **MT-20** drops
-  in without touching the page. Interface asserted by a compile-time seam.
-- Light + dark theme both verified.
-- **Polish carry-forwards from the Sprint 1 primitive/routing reviews — fold into this
-  first real screen (all minor, no rush, but do not lose them):**
-  (1) **ProgressBar rounding** — displayed `%` uses banker's rounding; switch to
-  `MidpointRounding.AwayFromZero` to match the JSX half-up exactly.
-  (2) **ProgressBar `aria-valuenow`** — must report the *clamped* value when
-  `Value > Max`.
-  (3) **Toast `aria-live`** — currently nested (stack + per-toast); keep it on **one**
-  level only.
-  (4) **`Routes.razor` `FocusOnNavigate Selector="h1"`** matches nothing today — give
-  each real screen a top-level `<h1>` heading so focus-on-navigate works.
-
-**Dependencies:** MT-03 (Done), MT-05 (Done — Tooltip/Card), MT-07 (Done — shell/nav).
-**Unblocks:** MT-20.
-**DoD extras:** trimmed-field annotations verified in review (D1 field set is final);
-the `IEnvironmentService` seam signature reviewed as MT-20-ready (list + per-env
-backup-timestamp method both present).
-
----
-
-### MT-11 — Settings: Database tab, wired to local Postgres (N9a) `[S]` `[PG]` — **Size: M** — READY
-*As a consultant, I want to configure and test my local Postgres connection and data
-directory once, so that restores have somewhere real to land.*
-
-**Acceptance criteria**
-- Given `ui_kits/app/SettingsScreen.jsx` (Database tab), when rendered, then it matches:
-  host/port/username/password inputs (mono where the mock is mono), data-directory
-  picker, and a "Test connection" action.
-- Given valid connection values, when "Test connection" is clicked, then a real
-  connection attempt is made (Npgsql) and the result shows server version and latency
-  ("PostgreSQL 16.2 — 12 ms" style, values real); given invalid values, then the error
-  states what failed (host unreachable / auth failed / timeout) — never a raw stack
-  trace.
-- Given a password is entered and saved, when storage is inspected, then the password
-  is in MAUI `SecureStorage` (Windows Credential Manager), **not** in SQLite,
-  Preferences, or any file; non-secret fields persist in Preferences/SQLite; restart
-  restores all values (password field shows masked placeholder, never the value).
-- Given any UI or log output, when a connection string is displayed, then the password
-  is never rendered or logged.
-- Given the data-directory picker, when a folder is chosen, then it persists and is
-  created if missing.
-
-**Dependencies:** MT-04, MT-07. **Unblocks:** MT-17, X1.
-**DoD extras:** secure-storage behaviour covered by an integration note the Tester can
-follow (where to look to prove no plaintext).
-
----
-
-### MT-12 — Settings: Preferences tab (N9b) — **Size: S** — READY
-*As a consultant, I want theme, auto-refresh, keep-backup-file, and checksum preferences
-in one place, so that the app behaves my way without re-deciding per action.*
-
-**Acceptance criteria**
-- Given `ui_kits/app/SettingsScreen.jsx` (Preferences tab), when rendered, then it
-  matches: theme selection (synced two-way with the topbar toggle), 30s auto-refresh
-  switch, "keep .backup files after restore" switch, "verify checksum after download"
-  switch.
-- Given any preference change, when toggled, then it takes effect immediately (no Save
-  button), persists across restart, and is exposed via a typed settings service the
-  Backups/Restore stories consume (keep-file default in MT-18's dialog, checksum flag
-  in MT-16).
-- Given the auto-refresh switch, when no consumer exists yet, then the value still
-  persists (consumed later by MT-20) — noted in code.
-
-**Dependencies:** MT-04, MT-07.
-**DoD extras:** none.
-
----
-
-### MT-13 — Settings: Credentials tab, vault-backed (N9c, D1 shape) `[S]` — **Size: M** — READY
-*As a consultant, I want my Mendix username and API key stored in the OS vault with a
-clear way to replace or remove them, so that cloud features work without my key ever
-touching a file.*
-
-**Acceptance criteria** *(shape per D1, recorded in `docs/vision.md` — this amends the
-`SettingsScreen.jsx` mock)*
-- Given the Credentials tab, when rendered, then it shows exactly **two fields**:
-  `Mendix username` (plain Input) and `API key` (masked, mono, with reveal toggle) —
-  **no PAT field, no `mx:deploy, mx:backups` scope tags, no "API region" row**
-  (deviations from the mock per D1; layout otherwise follows `SettingsScreen.jsx`).
-- Given values are saved, when storage is inspected, then **both** are in MAUI
-  `SecureStorage` (Windows Credential Manager) only — never SQLite, Preferences, files,
-  logs, or the repo; the UI states "Stored in OS credential vault"; after restart the
-  API key renders as a masked placeholder, never the value.
-- Given a stored credential, when "Test" is clicked, then the app calls
-  `GET /api/1/apps` with `Mendix-Username` + `Mendix-ApiKey` and reports: success with
-  the app count; 401 → "Credential rejected — check username and API key."; 403 →
-  "No API Rights — ask a Technical Contact for this account."; network failure → an
-  actionable offline/timeout message. Never a raw exception.
-- Given the **Remove** button (renamed from the mock's "Revoke"), when clicked, then
-  both values are deleted from the vault and the tab returns to its empty state; helper
-  text notes that real key revocation happens in the Mendix profile, with a link out.
-- Given no credential stored (first run), when cloud screens load, then they show the
-  designed empty/"connect" state pointing to Settings › Credentials, not errors.
-
-**Dependencies:** MT-04, MT-07. (The verify-kit live run of 2026-07-22 confirmed the
-auth model works as specified — no remaining soft dependency.)
-**Unblocks:** MT-14, MT-15, MT-16, MT-20.
-**DoD extras:** Tester verifies vault storage on Windows (Credential Manager) directly.
+All of MT-08..MT-13 are Done and passed review (see the DONE section). The app has a
+persistent metadata store, a shared job engine, the Environments dashboard on mock
+data, and a fully wired Settings screen (Postgres connection + test, preferences,
+vault-backed Mendix credentials). **Sprint 3 is now the active sprint.**
 
 ---
 
@@ -340,7 +132,20 @@ auth model works as specified — no remaining soft dependency.)
 with real progress and a real destructive-action guard. `[ENV]` stories call real
 Mendix APIs — use a test app/environment, never a customer production app, during dev.
 
-### MT-14 — Backups: wired list per environment (N7a) `[ENV]` — **Size: M** — **BLOCKED(MT-13)**
+> **Slice order & readiness (Sprint 2 complete):**
+> - **Ready-for-dev today:** **MT-14** (wired backups list — all deps Done) and
+>   **MT-20** (wired Environments — all deps Done). MT-14 is the flagship-flow entry
+>   point; start there.
+> - **Chain behind MT-14:** MT-15 (create) → then MT-16 (download, also needs MT-09,
+>   Done) → MT-17 (restore orchestration) → MT-18 (restore dialog/UI).
+> - **Still blocked on the Visionair:** **MT-19** (destructive-action guard) waits on
+>   the **D5 decision** (open question 1) — needed before MT-17's destructive step and
+>   MT-18. Push for D5 now so it doesn't stall the flagship.
+> - **No in-app credential pre-validation exists** (MT-13 accepted deviation, below):
+>   every first real cloud call — MT-14, MT-15, MT-16, MT-20 — must handle 401/403
+>   gracefully rather than assuming a validated key.
+
+### MT-14 — Backups: wired list per environment (N7a) `[ENV]` — **Size: M** — READY
 *As a consultant, I want to see real snapshots for a selected environment, so that I can
 pick the exact backup I need without opening Sprintr.*
 
@@ -366,8 +171,10 @@ pick the exact backup I need without opening Sprintr.*
 - Given the environment Select, when changed, then the list reloads for that
   environment; Refresh re-fetches.
 - Given an API failure (401/403/timeout), when the list loads, then the error states
-  what happened and what to do next ("Credential rejected — check Settings ›
-  Credentials"), never a raw exception.
+  what happened and what to do next ("Credentials invalid — check Settings ›
+  Credentials"), never a raw exception. **This is the first real cloud call and there
+  is no in-app credential pre-validation** (MT-13 accepted deviation), so a bad/rejected
+  key surfaces here for the first time — it must degrade gracefully, not crash.
 - Given no backups exist, when the list loads, then an empty state says so plainly
   (no mock rows ever shown against a real credential).
 - The API client lives in the core library behind an interface; response parsing is
@@ -394,6 +201,9 @@ backup first" is one click instead of a Sprintr round-trip.*
 - Given snapshot creation is asynchronous, when the request is accepted, then the list
   shows the new snapshot with its in-progress state and polls until it becomes
   Available or Failed; failure states the API's reason.
+- Given the create call returns **401/403** (no in-app credential pre-validation exists
+  — MT-13 accepted deviation), when it fails, then the error surfaces gracefully
+  ("Credentials invalid — check Settings › Credentials"), never a crash.
 - Given the operation completes, when done, then a toast states the fact ("Backup
   created for Acme Insurance · Production.") — voice rules, no celebration.
 - Non-destructive but `[ENV]`: creating snapshots on a real environment is allowed;
@@ -404,7 +214,7 @@ backup first" is one click instead of a Sprintr round-trip.*
 
 ---
 
-### MT-16 — Backups: download archive with progress + integrity check (N7c) `[ENV]` — **Size: M** — **BLOCKED(MT-09, MT-14)**
+### MT-16 — Backups: download archive with progress + integrity check (N7c) `[ENV]` — **Size: M** — **BLOCKED(MT-14)**
 *As a consultant, I want backups downloaded to my data directory with visible progress
 and an integrity check, so that files land where the tooling needs them and I trust
 them.*
@@ -428,6 +238,9 @@ them.*
   in the job log. (**Implementation-time check, folded in from MT-01:** exact 429
   behaviour was not observable in the read-only verify run — confirm against the live
   API while building this story.)
+- Given the archive-creation or download call returns **401/403** (no in-app credential
+  pre-validation exists — MT-13 accepted deviation), when it fails, then the job ends
+  gracefully with "Credentials invalid — check Settings › Credentials", never a crash.
 - Given the archive download response, when implementing, then verify the real
   response headers (**implementation-time check, folded in from MT-01**):
   `Content-Length` presence and range/resume support; if `Content-Length` is absent,
@@ -445,8 +258,13 @@ them.*
 - Given archive creation fails server-side, when polled, then the job fails with the
   API state and the log records the response.
 
-**Dependencies:** MT-09, MT-14, MT-12 (checksum pref), MT-11 (data directory).
+**Dependencies:** MT-09 (Done), MT-14, MT-12 (Done — checksum pref), MT-11 (Done —
+data directory). **Blocked only on MT-14.**
 **DoD extras:** orchestration state machine unit-tested with a mocked API client.
+**Do-first (from MT-09 review, non-blocking but due before this high-volume flow):**
+switch the JobEngine log-file write to async (`File.WriteAllLinesAsync`) — the current
+synchronous write is fine for low-volume jobs but should be async before MT-16/MT-17
+stream large logs.
 
 ---
 
@@ -482,9 +300,15 @@ database automatically, so that the unzip/`pg_restore` dance disappears.*
   (D4). Orchestration lives in the core library, unit-tested with a fake process
   runner; one end-to-end test against a real local Postgres is run by the Tester.
 
-**Dependencies:** MT-08, MT-09, MT-11, MT-16, MT-19 (guard must gate the destructive
-step). **Flag:** destructive against the *local* Postgres (drops the target DB).
+**Dependencies:** MT-08 (Done), MT-09 (Done), MT-11 (Done), MT-16, MT-19 (guard must
+gate the destructive step). **Flag:** destructive against the *local* Postgres (drops
+the target DB).
 **DoD extras:** end-to-end restore of a real (small) archive verified on Windows.
+**Metadata-store note (from MT-09 review):** MT-09 persists one **terminal** job-history
+row. If this story needs a live-running-job row that survives an app restart mid-restore
+(e.g. to warn "a restore was interrupted"), that requires adding `UpdateJobAsync` to
+`IMetadataStore` — scope it explicitly here if wanted; otherwise the terminal row
+(start+finish) is the agreed baseline.
 
 ---
 
@@ -542,7 +366,7 @@ confirm D5 before starting; the copy rules below hold under any mechanism)*
 
 ---
 
-### MT-20 — Environments dashboard, wired read-only (N6b) `[ENV]` — **Size: M** — **BLOCKED(MT-10, MT-13)**
+### MT-20 — Environments dashboard, wired read-only (N6b) `[ENV]` — **Size: M** — READY
 *As a consultant, I want the dashboard to show my real apps and environments, so that
 the home screen is true.*
 
@@ -569,6 +393,10 @@ the home screen is true.*
   show "—"** (no backups). Polite pacing/throttling of the per-env N+1 calls (respect
   429 as elsewhere).
 - Given the stat row, when rendered, then aggregates are computed from real data.
+- Given the apps/environments call returns **401/403** (no in-app credential
+  pre-validation exists — MT-13 accepted deviation; this is often the user's first real
+  cloud call), when it fails, then the dashboard shows "Credentials invalid — check
+  Settings › Credentials" gracefully, never a crash.
 - Given a fetch succeeds, when the app is later offline or a refresh fails, then the
   last-known state renders from the metadata-store cache with a visible stale
   indicator including fetched-at time (vision principle 6); given no cache and no
@@ -577,10 +405,18 @@ the home screen is true.*
   honours the MT-12 preference (30s) and pauses while offline.
 - Read-only: card quick actions may link out (Open in browser) and jump to Backups
   with the environment preselected; no start/stop actions in this story.
+- **Inherited from MT-10 (fix on real-client swap-in):** `Environments.razor`
+  `LoadBackupAsync` currently only catches `OperationCanceledException`. When the real
+  Backups-v2 client replaces the mock, **add a generic catch** that sets the cell to an
+  error/"—" state, so a thrown per-env backup call is never left unobserved.
+- **Inherited from MT-10 (wire the placeholder stat tiles):** the "Local DBs: 3" and
+  "Storage used: 12 GB" stat tiles are hardcoded placeholders in MT-10 — wire them to
+  real metadata-store data (MT-08) here (or flag them clearly as placeholders until X1
+  provides real local-DB counts). Decide and record which in the PR.
 
-**Dependencies:** MT-08 (cache + last-backup cache), MT-10 (seam + grouping), MT-12
-(auto-refresh pref), MT-13 (credential). (Open question 3 closed — N6 "last backup"
-decision recorded above.)
+**Dependencies:** MT-08 (cache + last-backup cache), MT-10 (Done — seam + grouping),
+MT-12 (auto-refresh pref), MT-13 (credential). (Open question 3 closed — N6 "last
+backup" decision recorded above.)
 **DoD extras:** none (D1 field set and N6 last-backup decision are final).
 
 ---
@@ -612,6 +448,103 @@ decision recorded above.)
 - **L7 — Slack deploy notifications**: after deploy ships.
 
 ## DONE
+
+### MT-13 — Settings: Credentials tab, vault-backed (N9c, D1 shape) — Done 2026-07-22
+Built in a parallel worktree, merged to master (commit `2839e97`), **passed review**
+incl. security review. Two fields (Mendix username + masked/mono API key), both stored
+**only** in `SecureStorage` (never DB/logs/DOM/disk plaintext), "Stored in OS credential
+vault" copy, **Remove** (vault-delete) with link-out helper text, empty/first-run state.
+
+- **ACCEPTED DEVIATION (recorded in Resolved decisions):** the "Test → `GET /api/1/apps`"
+  verification button was **deliberately omitted** — the security rule forbids any
+  Mendix Platform API call. The tab uses a **presence-based Connected / Not-configured
+  badge** instead. Reviewer concurred. **Consequence propagated to MT-14/15/16/20:** no
+  in-app credential pre-validation exists, so each first cloud call must handle 401/403
+  gracefully (added to their ACs). Do not schedule the button unless the Visionair
+  reconciles D1 with the security rule.
+
+### MT-12 — Settings: Preferences tab (N9b) — Done 2026-07-22
+Merged (commit `2839e97`), **passed review**. Theme (two-way synced with topbar toggle),
+30s auto-refresh, keep-.backup-file, verify-checksum switches; instant-effect, persisted,
+exposed via a typed settings service for MT-16/MT-18/MT-20 to consume.
+
+- **Non-blocking suggestion recorded (deferred tech-debt):** give `ThemeService` a
+  `Changed` event so the radios ↔ toggle sync is explicit rather than render-cascade
+  driven.
+
+### MT-11 — Settings: Database tab, wired to local Postgres (N9a) — Done 2026-07-22
+Merged (commit `2839e97`), **passed review** incl. security review. Host/port/user/
+password + data-directory picker, real Npgsql "Test connection" with server version +
+latency and actionable errors. **Postgres password stored only in `SecureStorage`**
+(never DB/Preferences/logs/DOM); connection strings never render the password. Npgsql
+10.0.3, no vuln warnings.
+
+### MT-09 — Shared job engine (core) (N5) — Done 2026-07-22
+Merged (commit `2839e97`), **passed review**. Phases + progress + log lines + cooperative
+cancel, terminal states persisted to `MendixTools.Core` job history; UI-agnostic
+(no MAUI/Blazor dependency); survives navigation via a singleton service. **17 new
+job-engine unit tests** (part of the 40 green: 32 core + 8 component). Scope guard held
+(no scheduling/queues/retries/persist-across-restart).
+
+- **Reviewer ruling (no action):** a single terminal job-history row (capturing
+  start+finish) satisfies the AC. A literal live start-row would need `UpdateJobAsync`
+  on `IMetadataStore` — only add if a future story needs live-running-job persistence
+  across restart (noted on MT-17).
+- **Non-blocking suggestions recorded (deferred tech-debt):** switch log-file write to
+  `File.WriteAllLinesAsync` before MT-16/MT-17 (pinned as do-first on those stories).
+
+### MT-10 — Environments dashboard, mock-first (N6a) — Done 2026-07-22
+Built in a parallel worktree, merged to master, **passed review after fixes**.
+`IEnvironmentService` seam + `MockEnvironmentService`, full DTO with the live-verified
+nullable field set, dashboard per `EnvironmentsScreen.jsx` (D1-trimmed), collapsible
+sandbox group, lazy per-env last-backup, topbar Refresh, and a top-level `<h1>` for
+focus-on-navigate. The three pinned polish carry-forwards are now DONE (applied
+directly): ProgressBar `Math.Round` away-from-zero + `aria-valuenow` clamped to Max;
+Toast per-toast `aria-live` removed (kept on `ToastStack`).
+
+- **Deferred to MT-20 (recorded there):** (a) `Environments.razor` `LoadBackupAsync`
+  only catches `OperationCanceledException` — add a generic catch/error-cell on
+  real-client swap-in; (b) "Local DBs: 3" / "Storage used: 12 GB" stat tiles are
+  hardcoded placeholders — wire to metadata-store data (MT-08) in a later polish.
+- NU1902 (AngleSharp, test-only, unreachable) suppressed via `NoWarn` with
+  justification.
+
+### MT-08 — Local metadata store (SQLite) + test scaffold (N4) — Done 2026-07-22
+Built in a parallel worktree, merged to master, **passed review**. Delivered the
+UI-agnostic **`MendixTools.Core`** project (`SqliteMetadataStore` + `user_version`
+migrations + models for provenance / job-history / env-state / last-backup /
+snapshot-sizes), refactored `ThemeService` behind `IThemeStore`, and created the
+**test scaffold**: `MendixTools.Core.Tests` (xUnit, 15 tests) + `MendixTools.
+Components.Tests` (bUnit, 8 tests, compiling real primitive source via `Link`). **All
+23 tests green on merged master.** Satisfies the test-project DoD; the pinned bUnit trio
+(Checkbox mixed→true, Radio single-select, Tabs Arrow/Home/End) and the ThemeService
+tests are implemented. Unblocks MT-09.
+
+### MT-07 — App shell: sidebar, topbar, navigation, persisted theme toggle (N3) — Done 2026-07-22
+Implemented, **passed review**. On-design shell matching `AppShell.jsx` (248px sidebar,
+52px topbar, nav to all five screens with active highlight, theme toggle persisted via
+Preferences and restored on restart). Template debris (MainLayout/NavMenu + their CSS,
+Home/Counter/Weather pages) verifiably removed. **Sprint 1 complete.**
+
+- **Carry-forwards:** ThemeService unit tests (default-light / toggle / Preferences
+  round-trip) added to MT-08/MT-09 scaffold; NavLink `Match=All`→`Prefix` note recorded
+  in codebase notes for when sub-routes appear; `Routes.razor` `FocusOnNavigate
+  Selector="h1"` fix recorded on MT-10 (screens need a top-level `<h1>`).
+
+### MT-06 — Razor primitives, batch D: DataTable, LogViewer (N2e) — Done 2026-07-22
+Implemented, **passed review**. DataTable (columns/mono/templates/hover, selectable
+with indeterminate select-all, selection callback) and LogViewer (5,000+ lines smooth,
+level colouring, tail-follow) match the JSX in light + dark.
+
+### MT-05 — Razor primitives, batch C: Dialog, Tooltip, ProgressBar, Toast + ToastStack (N2d) — Done 2026-07-22
+Implemented, **passed review**. Dialog (overlay/blur, focus trap + return, warning tone
+with `alert-triangle` added to `LucideIcons.cs`), Tooltip, ProgressBar, Toast/ToastStack
+match the JSX.
+
+- **Carry-forwards recorded:** `<ToastStack />` must move from `Styleguide.razor` into
+  `MainLayout.razor` → pinned as MT-15 pre-work (unblocks MT-15/MT-18 toasts);
+  ProgressBar rounding (AwayFromZero) + `aria-valuenow` clamp, and Toast single-level
+  `aria-live` → recorded on MT-10.
 
 ### MT-04 — Razor primitives, batch B: Input, Select, Checkbox, Radio, Switch, Tabs (N2c) — Done 2026-07-22
 Implemented by the Ontwikkelaar, **passed review** by the Tester/Reviewer: build green

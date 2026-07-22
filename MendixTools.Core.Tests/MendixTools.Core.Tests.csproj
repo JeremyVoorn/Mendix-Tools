@@ -34,6 +34,9 @@
          tests use a fake IMendixCredentialProvider and never touch the vault. -->
     <ItemGroup>
         <Compile Include="..\Models\EnvironmentModels.cs" Link="AppServices\EnvironmentModels.cs" />
+        <!-- MT-14 — the Snapshot model + comment-derived Type heuristic are pure (no MAUI/Blazor),
+             so the real source is linked here and its derivation logic tested directly. -->
+        <Compile Include="..\Models\SnapshotModels.cs" Link="AppServices\SnapshotModels.cs" />
         <Compile Include="..\Services\IEnvironmentService.cs" Link="AppServices\IEnvironmentService.cs" />
         <Compile Include="..\Services\MendixApiContracts.cs" Link="AppServices\MendixApiContracts.cs" />
         <Compile Include="..\Services\MendixApiClient.cs" Link="AppServices\MendixApiClient.cs" />
