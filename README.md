@@ -1,6 +1,10 @@
+![Build](https://img.shields.io/github/actions/workflow/status/JeremyVoorn/Mendix-Tools/build.yml?label=BUILD&style=flat-square)
+![Release](https://img.shields.io/github/v/release/JeremyVoorn/Mendix-Tools?label=RELEASE&style=flat-square)
+![Downloads](https://img.shields.io/github/downloads/JeremyVoorn/Mendix-Tools/total?label=DOWNLOADS&color=brightgreen&style=flat-square)
+
 # Mendix Tools
 
-A desktop utility for **Mendix consultants** that removes the manual friction between the Mendix cloud and your local machine. It talks to the Mendix Platform APIs and to a **local PostgreSQL** server so you can, from one app:
+A desktop utility for **Mendix Developers** that removes the manual friction between the Mendix cloud and your local machine. It talks to the Mendix Platform APIs and to a **local PostgreSQL** server so you can, from one app:
 
 - **Browse cloud environments** across every app your account can see (production / acceptance / test, plus personal sandboxes) — status, Mendix version, host, and last backup at a glance.
 - **Manage backups** — list cloud snapshots per environment, create a new snapshot, and download a snapshot's database archive with a live progress + integrity check.
