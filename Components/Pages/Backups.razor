@@ -26,6 +26,8 @@
 @inject IBackupService BackupService
 @inject IEnvironmentService EnvService
 @inject BackupJobs Jobs
+@inject RestoreJobs Restore
+@inject IUserNotifier Notifier
 @inject AppSettingsService Settings
 @inject ShellState Shell
 @implements IDisposable
@@ -51,36 +53,39 @@
                 OnClick="CreateBackupAsync">Create backup</Button>
     </div>
 
-    @if (_activeJob is not null)
+    @* Active-job card — one surface for create (MT-15), download (MT-16) AND restore (MT-18).
+       Restore drives it in two beats: an indeterminate "Downloading backup" prep state (no Job yet,
+       via IBackupService.DownloadArchiveAsync) then the phased restore Job. All card inputs come
+       from computed properties so the three flows share one markup (per BackupsScreen.jsx). *@
+    @if (ShowCard)
     {
         <Card Padding="15px 16px" class="@ActiveJobCardClass">
             <div class="mxt-jobcard">
-                <StatusDot Status="@(_activeJob.State == JobState.Succeeded ? "success" : _activeJob.State == JobState.Failed ? "error" : "deploying")"
-                           Pulse="@(!_activeJob.IsTerminal)" Size="9" />
+                <StatusDot Status="@CardDotStatus" Pulse="@CardRunning" Size="9" />
                 <div class="mxt-jobcard__body">
                     <div class="mxt-jobcard__head">
                         <span class="mxt-jobcard__phase">
-                            @(_activeJob.CurrentPhase ?? JobKindLabel(_activeJob.Kind))
+                            @CardPhase
                             @if (_activeJobContext is not null)
                             {
                                 <span class="mxt-jobcard__ctx">· @_activeJobContext</span>
                             }
                         </span>
-                        @if (!_activeJob.IsIndeterminate && _activeJob.Progress is { } p)
+                        @if (CardPercent is { } p)
                         {
                             <span class="mxt-jobcard__pct">@(Math.Round(p, MidpointRounding.AwayFromZero))%</span>
                         }
                     </div>
-                    <ProgressBar Value="@(_activeJob.Progress ?? 0)"
-                                 Indeterminate="@_activeJob.IsIndeterminate"
+                    <ProgressBar Value="@(_activeJob?.Progress ?? 0)"
+                                 Indeterminate="@CardIndeterminate"
                                  Tone="@ActiveJobTone"
                                  ShowValue="false" />
-                    @if (_activeJob.State == JobState.Failed && _activeJob.Message is not null)
+                    @if (CardError is not null)
                     {
-                        <div class="mxt-jobcard__error">@_activeJob.Message</div>
+                        <div class="mxt-jobcard__error">@CardError</div>
                     }
                 </div>
-                @if (_activeJob.IsTerminal)
+                @if (CardTerminal)
                 {
                     <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" OnClick="DismissJob">Dismiss</Button>
                 }
@@ -90,6 +95,13 @@
                 }
             </div>
         </Card>
+
+        @* The restore log is the consultant's main feedback (pg_restore stderr/stdout). Shown under
+           the card while a restore runs and kept after it terminates (the "View log" affordance). *@
+        @if (_activeJob?.Kind == "restore" && _logLines.Count > 0)
+        {
+            <LogViewer Lines="_logLines" Title="@($"restore · {_restoreTargetDb}")" Height="200" />
+        }
     }
 
     <Card Title="Cloud backups"
@@ -134,12 +146,33 @@
             </div>
         }
     </Card>
+
+    @* MT-18 — step one: the configure dialog. Emits the target DB + keep-file choice; starts nothing. *@
+    <RestoreDialog Open="_restoreDialogOpen"
+                   Created="@_restoreSnapshotCreated"
+                   DefaultDatabaseName="@_restoreDefaultDb"
+                   KeepFileDefault="@Settings.KeepBackupFilesAfterRestore"
+                   OnCancel="CloseRestoreDialog"
+                   OnStart="OnRestoreConfigured" />
+
+    @* MT-19 — step two: the Tier-2 typed-identifier guard. ONLY its OnConfirm reaches the
+       destructive download+restore. We cannot cheaply probe whether the target DB already exists
+       here, so per D5's "when in doubt, guard" we ALWAYS present it (safe default). *@
+    <DestructiveConfirm Open="_guardOpen"
+                        Title="@($"Drop and recreate {_restoreTargetDb}")"
+                        ConsequenceText="@GuardConsequence"
+                        TokenLabel="database name"
+                        TokenValue="@_restoreTargetDb"
+                        ConfirmLabel="Drop and restore"
+                        OnConfirm="OnGuardConfirmedAsync"
+                        OnClose="CloseGuard" />
 </div>
 
 @code {
     private IReadOnlyList<SelectOption> _envOptions = [];
-    // EnvironmentId -> (ProjectId, display label) so the seam call gets both keys.
-    private readonly Dictionary<string, (string ProjectId, string Label)> _envIndex = new();
+    // EnvironmentId -> keys + provenance the restore/backup calls need. AppName + MendixVersion feed
+    // the MT-17 restored-database provenance record (source app / Mendix version).
+    private readonly Dictionary<string, (string ProjectId, string Label, string AppName, string? MendixVersion)> _envIndex = new();
 
     private string? _selectedEnvId;
     private string? _subtitle;
@@ -154,28 +187,81 @@
 
     private CancellationTokenSource _cts = new();
 
-    // Active-job (create / download) card state (MT-15/MT-16).
+    // Active-job (create / download / restore) card state (MT-15/MT-16/MT-18).
     private Job? _activeJob;
     private string? _activeJobContext;
     private bool _creating;
 
-    private bool HasActiveJob => _activeJob is { IsTerminal: false };
+    // MT-18 restore flow state. The download step (before a Job exists) is shown as an indeterminate
+    // "Downloading backup" prep state; _prepError holds a download-step failure (no Job, so it needs
+    // its own terminal rendering). _logLines mirrors the restore Job's streamed log for the LogViewer.
+    private enum RestorePrep { None, Downloading }
+    private RestorePrep _restorePrep = RestorePrep.None;
+    private string? _restorePrepError;
+    private readonly List<LogLine> _logLines = [];
 
-    private ProgressTone ActiveJobTone => _activeJob?.State switch
-    {
-        JobState.Succeeded => ProgressTone.Success,
-        JobState.Failed => ProgressTone.Danger,
-        _ => ProgressTone.Db,
-    };
+    private bool _restoreDialogOpen;
+    private bool _guardOpen;
+    private Snapshot? _restoreSnapshot;
+    private string? _restoreSnapshotCreated;
+    private string _restoreDefaultDb = string.Empty;
+    private string _restoreTargetDb = string.Empty;
+    private bool _restoreKeepFile = true;
+    private CancellationTokenSource? _restoreCts;
+
+    // Any create/download/restore Job in flight, OR the pre-Job download prep. Gates the Create /
+    // Download / Restore actions and the env Select so only one flow runs at a time.
+    private bool HasActiveJob => _restorePrep != RestorePrep.None || _activeJob is { IsTerminal: false };
+
+    private string GuardConsequence =>
+        $"This drops and recreates `{_restoreTargetDb}`. Open connections will be terminated. This cannot be undone.";
+
+    // ── Active-job card view (unified across the three flows) ────────────────────────────────────
+    private bool ShowCard => _activeJob is not null || _restorePrep != RestorePrep.None || _restorePrepError is not null;
+
+    // Actively working: the download prep or a non-terminal Job (drives the pulse + Cancel/Dismiss).
+    private bool CardRunning => _restorePrep == RestorePrep.Downloading || _activeJob is { IsTerminal: false };
+
+    private bool CardTerminal => !CardRunning && ShowCard;
+
+    private string CardDotStatus =>
+        _restorePrepError is not null || _activeJob?.State == JobState.Failed ? "error"
+        : _activeJob?.State == JobState.Succeeded ? "success"
+        : "deploying";
+
+    private string CardPhase =>
+        _restorePrepError is not null ? "Restore failed"
+        : _restorePrep == RestorePrep.Downloading ? "Downloading backup"
+        : _activeJob?.CurrentPhase ?? JobKindLabel(_activeJob?.Kind ?? string.Empty);
+
+    // Only the download prep is indeterminate outside a Job; otherwise defer to the Job.
+    private bool CardIndeterminate =>
+        _restorePrep == RestorePrep.Downloading || (_activeJob?.IsIndeterminate ?? _restorePrepError is not null);
+
+    // A % is shown only for a determinate Job phase (download/create emit real percentages).
+    private double? CardPercent =>
+        _restorePrep == RestorePrep.None && _activeJob is { IsIndeterminate: false, Progress: { } p } ? p : null;
+
+    private string? CardError =>
+        _restorePrepError ?? (_activeJob?.State == JobState.Failed ? _activeJob.Message : null);
+
+    private ProgressTone ActiveJobTone =>
+        _restorePrepError is not null ? ProgressTone.Danger
+        : _activeJob?.State switch
+        {
+            JobState.Succeeded => ProgressTone.Success,
+            JobState.Failed => ProgressTone.Danger,
+            _ => ProgressTone.Db,
+        };
 
     // Splatted onto Card via @attributes; Blazor's last-write-wins on `class` would drop Card's
     // own base class, so we include "mxt-card" here to keep the card surface.
-    private string ActiveJobCardClass => _activeJob?.State switch
-    {
-        JobState.Succeeded => "mxt-card mxt-jobcard-card mxt-jobcard-card--success",
-        JobState.Failed => "mxt-card mxt-jobcard-card mxt-jobcard-card--danger",
-        _ => "mxt-card mxt-jobcard-card mxt-jobcard-card--active",
-    };
+    private string ActiveJobCardClass =>
+        _restorePrepError is not null || _activeJob?.State == JobState.Failed
+            ? "mxt-card mxt-jobcard-card mxt-jobcard-card--danger"
+        : _activeJob?.State == JobState.Succeeded
+            ? "mxt-card mxt-jobcard-card mxt-jobcard-card--success"
+            : "mxt-card mxt-jobcard-card mxt-jobcard-card--active";
 
     protected override async Task OnInitializedAsync()
     {
@@ -199,7 +285,7 @@
             foreach (var env in app.Environments)
             {
                 var label = $"{app.Name} · {env.Mode}";
-                _envIndex[env.EnvironmentId] = (app.ProjectId, label);
+                _envIndex[env.EnvironmentId] = (app.ProjectId, label, app.Name, env.MendixVersion);
                 options.Add(new SelectOption(env.EnvironmentId, label));
             }
         }
@@ -302,12 +388,38 @@
         DetachJob(); // only one card at a time
         _activeJob = job;
         _activeJobContext = context;
+        // Seed from any lines already emitted before this subscription (fast/fake jobs), then stream.
+        _logLines.Clear();
+        foreach (var line in job.Log)
+        {
+            _logLines.Add(MapLog(line));
+        }
+
         job.StateChanged += OnJobStateChanged;
         job.ProgressChanged += OnJobProgressChanged;
+        job.LineAppended += OnJobLine;
         StateHasChanged();
     }
 
     private void OnJobProgressChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private void OnJobLine(object? sender, JobLogLine line) => InvokeAsync(() =>
+    {
+        _logLines.Add(MapLog(line));
+        StateHasChanged();
+    });
+
+    // Maps a core job log line to the LogViewer's LogLine (level + local HH:mm:ss timestamp).
+    private static LogLine MapLog(JobLogLine line) => new(
+        line.Message,
+        line.Level switch
+        {
+            JobLogLevel.Warning => LogLevel.Warn,
+            JobLogLevel.Error => LogLevel.Error,
+            JobLogLevel.Debug => LogLevel.Debug,
+            _ => LogLevel.Info,
+        },
+        line.Timestamp.ToLocalTime().ToString("HH:mm:ss"));
 
     private async void OnJobStateChanged(object? sender, JobStateChangedEventArgs e)
     {
@@ -330,13 +442,23 @@
         _activeJob = null;
         _activeJobContext = null;
         _creating = false;
+        _restorePrep = RestorePrep.None;
+        _restorePrepError = null;
+        _logLines.Clear();
     }
 
     private void CancelJob()
     {
         if (_activeJob is { IsTerminal: false })
         {
+            // BackupJobs.Cancel and RestoreJobs.Cancel both delegate to the same singleton
+            // IJobEngine, so this cancels a create/download OR a restore job by id.
             Jobs.Cancel(_activeJob.Id);
+        }
+        else if (_restorePrep == RestorePrep.Downloading)
+        {
+            // No Job yet — cancel the in-flight archive download via its dedicated token.
+            _restoreCts?.Cancel();
         }
     }
 
@@ -346,13 +468,141 @@
         {
             _activeJob.StateChanged -= OnJobStateChanged;
             _activeJob.ProgressChanged -= OnJobProgressChanged;
+            _activeJob.LineAppended -= OnJobLine;
         }
+    }
+
+    // ── MT-18 restore: configure dialog → MT-19 guard → download → RestoreJobs.StartRestore ──────
+
+    private void OpenRestoreDialog(Snapshot snap)
+    {
+        if (!snap.HasActions || HasActiveJob
+            || _selectedEnvId is null || !_envIndex.TryGetValue(_selectedEnvId, out var env))
+        {
+            return;
+        }
+
+        _restoreSnapshot = snap;
+        _restoreSnapshotCreated = snap.CreatedAt.ToString("yyyy-MM-dd HH:mm");
+        _restoreDefaultDb = DefaultDatabaseName(env.AppName);
+        _restoreDialogOpen = true;
+    }
+
+    private void CloseRestoreDialog() => _restoreDialogOpen = false;
+
+    // Step one done: the user configured the restore. Because we cannot cheaply tell whether the
+    // target DB already exists, we ALWAYS present the Tier-2 guard (safe default — D5). Only its
+    // OnConfirm proceeds; Cancel/Esc leaves Postgres untouched.
+    private void OnRestoreConfigured(RestoreDialogResult result)
+    {
+        _restoreDialogOpen = false;
+        _restoreTargetDb = result.TargetDatabaseName;
+        _restoreKeepFile = result.KeepFile;
+        _guardOpen = true;
+    }
+
+    private void CloseGuard() => _guardOpen = false;
+
+    private async Task OnGuardConfirmedAsync()
+    {
+        _guardOpen = false;
+        await RunRestoreAsync();
+    }
+
+    // Download the archive (composable MT-16 seam, shown as the indeterminate "Downloading backup"
+    // prep state) then hand the local file to the MT-17 restore engine as a phased Job. confirmed:
+    // true is the guard's pass — the destructive drop/recreate is reachable ONLY on this path.
+    private async Task RunRestoreAsync()
+    {
+        if (_restoreSnapshot is null
+            || _selectedEnvId is null || !_envIndex.TryGetValue(_selectedEnvId, out var env))
+        {
+            return;
+        }
+
+        var snap = _restoreSnapshot;
+        var targetDb = _restoreTargetDb;
+        var keepFile = _restoreKeepFile;
+        var created = snap.CreatedAt.ToString("yyyy-MM-dd HH:mm");
+
+        var dir = Settings.DataDirectory;
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            dir = Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, "backups");
+        }
+
+        // Show the card immediately in its download-prep state and disable the row actions.
+        DetachJob();
+        _activeJob = null;
+        _logLines.Clear();
+        _restorePrepError = null;
+        _restorePrep = RestorePrep.Downloading;
+        _activeJobContext = $"{targetDb} · {created}";
+
+        // Dedicated token so the shared _cts (reset by env-change / topbar Refresh) can't cancel the
+        // download from under the restore; the card's Cancel button cancels this one.
+        _restoreCts?.Dispose();
+        _restoreCts = new CancellationTokenSource();
+        var ct = _restoreCts.Token;
+        StateHasChanged();
+
+        BackupDownload download;
+        try
+        {
+            download = await BackupService.DownloadArchiveAsync(
+                env.ProjectId, _selectedEnvId, snap.SnapshotId, dir, Settings.VerifyChecksumAfterDownload, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            _restorePrep = RestorePrep.None; // user cancelled the download — nothing was restored
+            return;
+        }
+        catch (Exception ex)
+        {
+            _restorePrep = RestorePrep.None;
+            _restorePrepError = MapError(ex);
+            Notifier.Error("Restore failed", _restorePrepError);
+            StateHasChanged();
+            return;
+        }
+
+        _restorePrep = RestorePrep.None;
+
+        var provenance = new RestoreProvenanceInfo(env.AppName, _selectedEnvId, env.MendixVersion, snap.CreatedAt);
+        var job = Restore.StartRestore(
+            download.FilePath, targetDb, snap.SnapshotId, env.Label,
+            confirmed: true, keepFile: keepFile, provenance: provenance);
+
+        // Drive the same card; the restore Job's phases/log/toast take over from here.
+        TrackJob(job, $"{targetDb} · {created}");
+    }
+
+    // Derives a sensible default local database name from the source app name, e.g.
+    // "Acme Insurance" -> "acme_insurance_local". The user can edit it in the dialog; the final
+    // value is what the guard requires typed.
+    private static string DefaultDatabaseName(string appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName))
+        {
+            return "restored_local";
+        }
+
+        var slug = new string(appName.Trim().ToLowerInvariant()
+            .Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+        while (slug.Contains("__"))
+        {
+            slug = slug.Replace("__", "_");
+        }
+
+        slug = slug.Trim('_');
+        return string.IsNullOrEmpty(slug) ? "restored_local" : $"{slug}_local";
     }
 
     private static string JobKindLabel(string kind) => kind switch
     {
         "create-backup" => "Creating backup",
         "download" => "Downloading backup",
+        "restore" => "Restoring",
         _ => kind,
     };
 
@@ -453,10 +703,12 @@
         @<div class="mxt-backups__actions">
             @if (snap.HasActions)
             {
-                @* Restore stays disabled until MT-17/MT-18 wire the pg_restore flow. *@
-                <Tooltip Label="Available once restore is wired (MT-17)">
-                    <Button Size="ControlSize.Sm" Variant="ButtonVariant.Subtle" Icon="database-backup" Disabled>Restore</Button>
-                </Tooltip>
+                @* MT-18 — Restore this completed snapshot into local Postgres. Opens the configure
+                   dialog; "Start restore" there routes through the MT-19 typed-identifier guard
+                   before anything touches the database. Disabled while any job/prep runs. *@
+                <Button Size="ControlSize.Sm" Variant="ButtonVariant.Subtle" Icon="database-backup"
+                        Disabled="@HasActiveJob"
+                        OnClick="@(() => OpenRestoreDialog(snap))">Restore</Button>
                 @* MT-16 — Download the snapshot's database-only archive to the data directory,
                    driven through the same active-job card. Disabled while a job runs. *@
                 <IconButton Size="ControlSize.Sm" Icon="download" AriaLabel="Download"
@@ -515,5 +767,9 @@
         DetachJob();
         _cts.Cancel();
         _cts.Dispose();
+        // Cancel an in-flight restore download; the restore Job itself lives in the singleton engine
+        // and survives navigation (its terminal toast still fires).
+        _restoreCts?.Cancel();
+        _restoreCts?.Dispose();
     }
 }

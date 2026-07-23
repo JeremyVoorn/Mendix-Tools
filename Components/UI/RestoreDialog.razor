@@ -1,0 +1,129 @@
+@* Mendix Tools — RestoreDialog (MT-18). The "Restore to local Postgres" CONFIGURE dialog from
+   docs/design-system/ui_kits/app/BackupsScreen.jsx: warning tone, database-backup icon tile, a
+   mono target-database Input (prefilled), the restore-strategy radios (Clean restore enabled and
+   selected; "Merge into existing" VISIBLE but DISABLED — CUT for v1 per D5), a keep-file Checkbox
+   (defaulted from the MT-12 preference), and a Cancel / "Start restore" footer.
+
+   This component ONLY collects the configuration and emits it via OnStart — it does NOT start any
+   work and is NOT the destructive guard. "Start restore" is step one of the two-step flow: the
+   Backups page takes the emitted RestoreDialogResult, then presents the MT-19 typed-identifier
+   guard (DestructiveConfirm) before anything touches Postgres. Cancel/Esc/overlay are inert
+   (routed to OnCancel via the Dialog primitive) — no side effect fires here.
+
+   Usage (Components/Pages/Backups.razor):
+     <RestoreDialog Open="_restoreDialogOpen" Created="2026-07-22 09:12"
+                    DefaultDatabaseName="acme_local" KeepFileDefault="true"
+                    OnCancel="CloseRestoreDialog" OnStart="OnRestoreConfigured" /> *@
+@namespace Mendix_Tools.Components.UI
+
+<Dialog Open="Open"
+        OnClose="OnCancel"
+        Tone="DialogTone.Warning"
+        Icon="database-backup"
+        Width="480"
+        Title="Restore to local Postgres"
+        Description="@Description">
+    <ChildContent>
+        <div class="mxt-restore-dialog">
+            <Input Label="Target database"
+                   Mono
+                   LeftIcon="database"
+                   Value="@_targetDb"
+                   ValueChanged="OnTargetChanged"
+                   Placeholder="@DefaultDatabaseName"
+                   autocomplete="off"
+                   autocapitalize="off"
+                   autocorrect="off"
+                   spellcheck="false" />
+
+            <div class="mxt-restore-dialog__strategy">
+                <div class="mxt-restore-dialog__strategy-label">Restore strategy</div>
+                <div class="mxt-restore-dialog__strategy-options">
+                    @* Clean restore — the only strategy in v1; always selected. *@
+                    <Radio Name="mxt-restore-strategy"
+                           Value="clean"
+                           SelectedValue="clean"
+                           Label="Clean restore"
+                           Description="Drop and recreate the schema before import" />
+                    @* Merge into existing — CUT for v1 (D5). Visible-but-disabled so the option is
+                       legibly deferred, not silently missing. *@
+                    <Radio Name="mxt-restore-strategy"
+                           Value="merge"
+                           SelectedValue="clean"
+                           Disabled
+                           Label="Merge into existing"
+                           Description="Not available in this version" />
+                </div>
+            </div>
+
+            <Checkbox Label="Keep the downloaded .backup file after restore"
+                      Checked="@_keepFile"
+                      CheckedChanged="OnKeepFileChanged" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <Button Variant="ButtonVariant.Secondary" OnClick="OnCancel">Cancel</Button>
+        <Button Icon="play"
+                Disabled="@(string.IsNullOrWhiteSpace(_targetDb))"
+                OnClick="StartAsync">Start restore</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    private string _targetDb = string.Empty;
+    private bool _keepFile = true;
+    private bool _wasOpen;
+
+    /// <summary>Controls visibility (Dialog renders nothing when false).</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Mono snapshot timestamp shown in the description, e.g. "2026-07-22 09:12".</summary>
+    [Parameter] public string? Created { get; set; }
+
+    /// <summary>Human archive size for the description, e.g. "2.4 GB". The snapshots API carries no
+    /// size (CUT — MT-14) and the archive isn't downloaded yet, so this is usually null and the size
+    /// clause is then omitted.</summary>
+    [Parameter] public string? SizeLabel { get; set; }
+
+    /// <summary>Prefilled target database name (derived from the source app). The user may edit it;
+    /// the edited value becomes the guard's required identifier.</summary>
+    [Parameter] public string DefaultDatabaseName { get; set; } = string.Empty;
+
+    /// <summary>Initial state of the keep-file checkbox (MT-12 "keep .backup file" preference).</summary>
+    [Parameter] public bool KeepFileDefault { get; set; } = true;
+
+    /// <summary>Inert cancel/close — Cancel button, Esc, overlay, or the ✕. No side effect.</summary>
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    /// <summary>Fired when "Start restore" is clicked with a non-blank target — carries the
+    /// configured <see cref="RestoreDialogResult"/>. The owner then shows the MT-19 guard.</summary>
+    [Parameter] public EventCallback<RestoreDialogResult> OnStart { get; set; }
+
+    private string Description =>
+        Created is null
+            ? "The snapshot will be imported into your local server."
+            : string.IsNullOrEmpty(SizeLabel)
+                ? $"Snapshot from {Created} will be imported into your local server."
+                : $"Snapshot from {Created} ({SizeLabel}) will be imported into your local server.";
+
+    // Seed the editable fields from the parameters each time the dialog opens, so a prior attempt's
+    // typed name never leaks into the next open (mirrors DestructiveConfirm's reset-on-open).
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen)
+        {
+            _targetDb = DefaultDatabaseName;
+            _keepFile = KeepFileDefault;
+        }
+        _wasOpen = Open;
+    }
+
+    private void OnTargetChanged(string? value) => _targetDb = value ?? string.Empty;
+
+    private void OnKeepFileChanged(bool value) => _keepFile = value;
+
+    private Task StartAsync() =>
+        string.IsNullOrWhiteSpace(_targetDb)
+            ? Task.CompletedTask
+            : OnStart.InvokeAsync(new RestoreDialogResult(_targetDb.Trim(), _keepFile));
+}

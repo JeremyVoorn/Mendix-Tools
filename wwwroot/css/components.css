@@ -783,3 +783,18 @@ html,body{height:100%;}
 .mxt-dconfirm__id{
   font-family:var(--font-mono);color:var(--text-primary);
 }
+
+/* ===================================================================== */
+/* MT-18 — RestoreDialog body (the "Restore to local Postgres" configure  */
+/* form). APPEND-ONLY. Shell (overlay/tone/header/footer/focus trap) is   */
+/* the Dialog primitive; the field/radios/checkbox reuse .mxt-field /     */
+/* .mxt-choice. Column layout + gaps mirror the restore dialog body in    */
+/* ui_kits/app/BackupsScreen.jsx (14px body gap, 8px label, 10px radios). */
+/* ===================================================================== */
+
+.mxt-restore-dialog{display:flex;flex-direction:column;gap:14px;}
+.mxt-restore-dialog__strategy-label{
+  font-size:var(--text-sm);font-weight:var(--fw-medium);
+  color:var(--text-secondary);margin-bottom:8px;
+}
+.mxt-restore-dialog__strategy-options{display:flex;flex-direction:column;gap:10px;}

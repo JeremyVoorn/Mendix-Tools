@@ -43,6 +43,9 @@
         <RazorComponent Include="..\Components\UI\Input.razor" Link="AppComponents\Input.razor" />
         <RazorComponent Include="..\Components\UI\Dialog.razor" Link="AppComponents\Dialog.razor" />
         <RazorComponent Include="..\Components\UI\DestructiveConfirm.razor" Link="AppComponents\DestructiveConfirm.razor" />
+        <!-- MT-18 — the restore CONFIGURE dialog (composes Dialog/Input/Radio/Checkbox/Button). -->
+        <Compile Include="..\Components\UI\RestoreDialogResult.cs" Link="AppComponents\RestoreDialogResult.cs" />
+        <RazorComponent Include="..\Components\UI\RestoreDialog.razor" Link="AppComponents\RestoreDialog.razor" />
     </ItemGroup>
 
 </Project>
