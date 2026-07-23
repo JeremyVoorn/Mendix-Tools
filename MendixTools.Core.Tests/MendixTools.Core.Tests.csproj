@@ -53,6 +53,13 @@
              use a fake IUserNotifier. ArchiveIntegrity lives in MendixTools.Core (project ref). -->
         <Compile Include="..\Services\IUserNotifier.cs" Link="AppServices\IUserNotifier.cs" />
         <Compile Include="..\Services\BackupJobs.cs" Link="AppServices\BackupJobs.cs" />
+        <!-- MT-17 — the restore engine seam + orchestrator are MAUI/Blazor/Npgsql-free (job engine +
+             IRestoreRunner + IUserNotifier + metadata store only), so the real source is linked here
+             and exercised with a FAKE IRestoreRunner — NO real process, NO real database is ever
+             touched. The production PostgresRestoreRunner (Npgsql + pg_restore/psql) is NOT linked;
+             it is never executed by any test. -->
+        <Compile Include="..\Services\IRestoreRunner.cs" Link="AppServices\IRestoreRunner.cs" />
+        <Compile Include="..\Services\RestoreJobs.cs" Link="AppServices\RestoreJobs.cs" />
     </ItemGroup>
 
 </Project>

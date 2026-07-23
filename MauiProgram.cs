@@ -97,6 +97,26 @@ public static class MauiProgram
         builder.Services.AddTransient<Mendix_Tools.Services.BackupJobs>();
         // ── end MT-15 ──
 
+        // ── MT-17 Restore engine (clean restore → local Postgres) ──
+        // MERGE POINT with MT-19 (Tier-2 UI guard, separate worktree): the ONLY overlap is this
+        // DI block. MT-19 touches Components/UI only; MT-17 touches Services/ + Core + tests + this
+        // block — no shared files, so the merge is this block plus MT-19's component registration
+        // (if any). MT-18 later wires the restore dialog → RestoreJobs.StartRestore(..., confirmed:
+        // <MT-19 guard result>).
+        //
+        // IRestoreRunner is the process/exec seam over the real local-Postgres operations
+        // (Npgsql DROP/CREATE + pg_restore/psql import). PostgresRestoreRunner reads the local
+        // Postgres connection (host/port/user + vault-only password) from AppSettingsService AT
+        // CALL TIME — no secret captured in a constructor or logged. RestoreJobs is the UI-agnostic
+        // orchestrator (transient, like BackupJobs); it uses the shared singletons (job engine,
+        // IUserNotifier, metadata store) so a restore survives navigation and its terminal toast
+        // fires regardless of screen. The destructive drop/recreate runs ONLY when the caller passes
+        // confirmed:true (RestoreConfirmation token) — see RestoreJobs/IRestoreRunner.
+        builder.Services.AddSingleton<Mendix_Tools.Services.IRestoreRunner,
+            Mendix_Tools.Services.PostgresRestoreRunner>();
+        builder.Services.AddTransient<Mendix_Tools.Services.RestoreJobs>();
+        // ── end MT-17 ──
+
         // ── MT-11/12/13 Settings (DI) ──
         // Secrets (Mendix API key, Postgres password) live ONLY in the OS vault via
         // ISecretStore→SecureStorage; non-secret prefs (host/port/user/data-dir + the three
