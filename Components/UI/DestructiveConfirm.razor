@@ -136,8 +136,8 @@
     private Task ConfirmAsync() => IsMatch ? OnConfirm.InvokeAsync() : Task.CompletedTask;
 
     // Split ConsequenceText on backticks: even segments are prose, odd segments are mono
-    // identifiers ("a `b` c" -> ["a ", "b", " c"]). A stray unmatched backtick just renders
-    // its tail as prose (odd count) — never throws.
+    // identifiers ("a `b` c" -> ["a ", "b", " c"]). A stray unmatched backtick renders its
+    // tail as mono ("a `b" -> ["a ", "b"], the odd index 1 is mono) — never throws.
     private IEnumerable<(string Text, bool Mono)> Segments
     {
         get

@@ -23,12 +23,18 @@ namespace Mendix_Tools.Services;
 ///   2. Engine (this class): <see cref="StartRestore"/> takes an explicit <c>confirmed</c> flag and
 ///      converts it into a <see cref="RestoreConfirmation"/> token. If unconfirmed the job fails
 ///      IMMEDIATELY with "restore not confirmed" and calls NO runner step — nothing is touched. The
-///      destructive runner methods require the token, so an unconfirmed drop is unreachable by
-///      construction, not merely by a runtime check.
+///      destructive runner methods take a non-null token, so with nullable reference types on an
+///      unconfirmed drop is a compile-time WARNING, not a hard error; the actual guarantee is the
+///      runtime gate here — <see cref="RestoreConfirmation.ForConfirmed"/> returns null unless
+///      <c>confirmed</c>, and the job then fails before any runner step runs.
 ///
-/// Provenance is recorded on SUCCESS only (per this story's scope). On a failure or cancellation
-/// AFTER the drop began, an honest ERROR log line records that the target is left dropped /
-/// half-imported and is NOT usable — no silent half-restore is ever presented as good.
+/// Provenance is recorded on SUCCESS with <see cref="RestoreStatus.Succeeded"/>. If the drop has
+/// BEGUN and the restore then fails or is cancelled, a provenance row is written with
+/// <see cref="RestoreStatus.Failed"/> and an honest ERROR log line records that the target is left
+/// dropped / half-imported and is NOT usable — the failed attempt is captured (MT-17 AC-5), so no
+/// silent half-restore is ever presented as good. A failure BEFORE the drop (tool-not-found,
+/// unreachable server, bad credentials, not-confirmed, missing archive) leaves the database
+/// untouched and writes NO row.
 /// </summary>
 public sealed class RestoreJobs
 {
@@ -121,17 +127,21 @@ public sealed class RestoreJobs
             var destructiveStarted = false;
             try
             {
-                // ── Terminating connections (destructive — token required) ───────────────────────
+                // ── Terminating connections (token required, but NOT yet data-destroying) ────────
+                // Terminating open backends frees the DB for the drop; it does not itself drop or
+                // alter data, so if it fails the target is still intact — destructiveStarted stays
+                // false until the drop is actually attempted below.
                 ctx.BeginPhase("Terminating connections");
                 ctx.ReportIndeterminate();
-                destructiveStarted = true;
                 ctx.LogInfo($"Terminating open connections to {targetDbName}.");
                 await _runner.TerminateConnectionsAsync(confirmation, plan, ctx, ct).ConfigureAwait(false);
 
                 // ── Dropping & recreating (destructive, irreversible — token required) ───────────
+                // The point of no return: from here a failure/cancellation leaves the DB unusable.
                 ctx.BeginPhase($"Dropping & recreating {targetDbName}");
                 ctx.ReportIndeterminate();
                 ctx.LogInfo($"Dropping and recreating {targetDbName}. This cannot be undone.");
+                destructiveStarted = true;
                 await _runner.DropAndRecreateDatabaseAsync(confirmation, plan, ctx, ct).ConfigureAwait(false);
 
                 // ── Importing ────────────────────────────────────────────────────────────────────
@@ -150,6 +160,12 @@ public sealed class RestoreJobs
                 {
                     ctx.LogError(
                         $"Cancelled after the drop began — {targetDbName} is left dropped or partially imported and is NOT usable. Re-run the restore.");
+
+                    // Capture the failed attempt: this DB is equally unusable as an import-failure.
+                    // Use CancellationToken.None so the provenance write is not itself cancelled.
+                    await RecordProvenanceAsync(
+                        targetDbName, sourceSnapshotId, sourceEnvLabel, provenance,
+                        SafeFileLength(archivePath), RestoreStatus.Failed, CancellationToken.None).ConfigureAwait(false);
                 }
                 else
                 {
@@ -164,6 +180,13 @@ public sealed class RestoreJobs
                 {
                     ctx.LogError(
                         $"Restore failed after the drop began — {targetDbName} is left dropped or partially imported and is NOT usable. Re-run the restore.");
+
+                    // Record the failed attempt so the partial DB is clearly marked failed in
+                    // provenance (MT-17 AC-5) — no silent half-restore. Use CancellationToken.None
+                    // so the write completes even if the failure rode in on a cancellation.
+                    await RecordProvenanceAsync(
+                        targetDbName, sourceSnapshotId, sourceEnvLabel, provenance,
+                        SafeFileLength(archivePath), RestoreStatus.Failed, CancellationToken.None).ConfigureAwait(false);
                 }
 
                 // Known, already-user-safe runner failures pass through verbatim; anything else is
@@ -174,7 +197,7 @@ public sealed class RestoreJobs
             // ── Success: provenance + keep-file + Done ───────────────────────────────────────────
             var size = SafeFileLength(archivePath);
             await RecordProvenanceAsync(
-                targetDbName, sourceSnapshotId, sourceEnvLabel, provenance, size, ct).ConfigureAwait(false);
+                targetDbName, sourceSnapshotId, sourceEnvLabel, provenance, size, RestoreStatus.Succeeded, ct).ConfigureAwait(false);
 
             if (!keepFile)
             {
@@ -201,6 +224,7 @@ public sealed class RestoreJobs
         string sourceEnvLabel,
         RestoreProvenanceInfo? provenance,
         long? size,
+        RestoreStatus status,
         CancellationToken ct)
     {
         var record = new RestoredDatabase
@@ -213,7 +237,7 @@ public sealed class RestoreJobs
             MendixVersion = provenance?.MendixVersion,
             SizeBytes = size,
             RestoredAt = _clock.GetUtcNow(),
-            Status = RestoreStatus.Succeeded,
+            Status = status,
         };
 
         await _store.AddRestoredDatabaseAsync(record, ct).ConfigureAwait(false);

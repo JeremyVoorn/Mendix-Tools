@@ -127,7 +127,7 @@ public sealed class RestoreJobsTests
     // ── Runner failure mid-import ────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task RunnerFailsMidImport_JobFailed_WithRunnerMessage_NoProvenance()
+    public async Task RunnerFailsMidImport_JobFailed_RecordsFailedProvenance()
     {
         using var archive = TempArchive.PgDump();
         var runner = new FakeRunner
@@ -137,17 +137,52 @@ public sealed class RestoreJobsTests
         };
         var (jobs, engine, store, notifier) = NewJobs(runner);
 
-        var job = jobs.StartRestore(archive.Path, TargetDb, "snap-1", "Acme · Production", confirmed: true);
+        var job = jobs.StartRestore(
+            archive.Path, TargetDb, "snap-1", "Acme · Production", confirmed: true,
+            provenance: new RestoreProvenanceInfo("Acme Insurance", "env-1", "10.24.16", DateTimeOffset.UnixEpoch));
         await engine.WaitAsync(job.Id);
 
         Assert.Equal(JobState.Failed, job.State);
         Assert.Equal("Import failed — pg_restore exited with code 1. Open the log for details.", job.Message);
         Assert.Equal(1, runner.DropCalls);     // drop happened, then import failed
-        Assert.Empty(store.Restored);          // no provenance recorded on failure
+
+        // MT-17 AC-5: the failed attempt is recorded — exactly one row, clearly marked Failed, so
+        // the partially-restored DB is never silently presented as good.
+        var record = Assert.Single(store.Restored);
+        Assert.Equal(RestoreStatus.Failed, record.Status);
+        Assert.Equal(TargetDb, record.TargetDatabaseName);
+        Assert.Equal("snap-1", record.SnapshotId);
+        Assert.Equal("Acme Insurance", record.SourceApp);
+        Assert.Equal("env-1", record.SourceEnvironmentId);
+        Assert.Equal("10.24.16", record.MendixVersion);
+
         // The half-restored state is documented honestly in the log (no silent half-restore).
         Assert.Contains(job.Log, l => l.Level == JobLogLevel.Error && l.Message.Contains("NOT usable"));
         var error = Assert.Single(notifier.Errors);
         Assert.Equal("Restore failed", error.Title);
+    }
+
+    [Fact]
+    public async Task TerminateFails_BeforeDrop_NoFailedProvenance_NoNotUsableLog()
+    {
+        // Terminating backends does not drop data; a terminate failure leaves the DB intact, so it
+        // must NOT be logged as "NOT usable" and must NOT write a Failed provenance row.
+        using var archive = TempArchive.PgDump();
+        var runner = new FakeRunner
+        {
+            OnTerminate = () => throw new RestoreRunnerException(
+                RestoreFailureKind.Unreachable, "Local Postgres is unreachable — check the host, port, and that it is running."),
+        };
+        var (jobs, engine, store, _) = NewJobs(runner);
+
+        var job = jobs.StartRestore(archive.Path, TargetDb, "snap-1", "Acme · Production", confirmed: true);
+        await engine.WaitAsync(job.Id);
+
+        Assert.Equal(JobState.Failed, job.State);
+        Assert.Equal(1, runner.TerminateCalls);
+        Assert.Equal(0, runner.DropCalls);     // failed before the drop was attempted
+        Assert.Empty(store.Restored);          // DB untouched → no provenance row
+        Assert.DoesNotContain(job.Log, l => l.Level == JobLogLevel.Error && l.Message.Contains("NOT usable"));
     }
 
     [Fact]
@@ -213,7 +248,12 @@ public sealed class RestoreJobsTests
 
         Assert.Equal(JobState.Cancelled, job.State);
         Assert.Equal(1, runner.DropCalls);     // the drop already happened before cancellation
-        Assert.Empty(store.Restored);          // no provenance on cancel
+
+        // Cancel-after-drop leaves the DB equally unusable, so the failed attempt is recorded too.
+        var record = Assert.Single(store.Restored);
+        Assert.Equal(RestoreStatus.Failed, record.Status);
+        Assert.Equal(TargetDb, record.TargetDatabaseName);
+
         Assert.Contains(job.Log, l => l.Level == JobLogLevel.Error && l.Message.Contains("NOT usable"));
         Assert.Empty(notifier.Successes);
         Assert.Empty(notifier.Errors);         // cancellation is user-initiated → no toast
@@ -375,6 +415,7 @@ public sealed class RestoreJobsTests
 
         public Action? OnEnsureTool { get; set; }
         public Action? OnVerifyServer { get; set; }
+        public Action? OnTerminate { get; set; }
         public Action? OnImport { get; set; }
         public Func<CancellationToken, Task>? OnImportAsync { get; set; }
 
@@ -396,6 +437,7 @@ public sealed class RestoreJobsTests
         {
             Assert.NotNull(confirmation); // the token is required — structural gate
             TerminateCalls++;
+            OnTerminate?.Invoke();
             return Task.CompletedTask;
         }
 

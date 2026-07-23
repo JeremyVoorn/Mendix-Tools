@@ -11,13 +11,14 @@ namespace Mendix_Tools.Services;
 /// shells out to <c>pg_restore</c>/<c>psql</c> for the import; unit tests inject a FAKE runner so
 /// NO real process is spawned and NO real database is ever touched.
 ///
-/// SAFETY (non-negotiable, structural): the three destructive operations — terminate connections,
-/// drop &amp; recreate, import — REQUIRE a <see cref="RestoreConfirmation"/> token. The only way to
-/// obtain one is <see cref="RestoreConfirmation.ForConfirmed"/>, which returns <c>null</c> unless
-/// the caller passed <c>confirmed: true</c>. There is therefore no code path that can invoke a
-/// drop/recreate with an unconfirmed restore — the type system makes it unreachable, not just a
-/// runtime <c>if</c>. Non-destructive steps (locate tool, verify server, verify restore) take no
-/// token.
+/// SAFETY (non-negotiable): the three destructive operations — terminate connections, drop &amp;
+/// recreate, import — REQUIRE a <see cref="RestoreConfirmation"/> token. The only way to obtain one
+/// is <see cref="RestoreConfirmation.ForConfirmed"/>, which returns <c>null</c> unless the caller
+/// passed <c>confirmed: true</c>. Because the destructive methods take a non-null token, passing a
+/// possibly-null confirmation is a nullable-reference-type WARNING (not a hard compile error), which
+/// makes an unconfirmed drop stand out at build time; the real guarantee is the runtime gate in
+/// <see cref="RestoreJobs"/> — ForConfirmed returns null unless confirmed and the job fails before
+/// any runner step. Non-destructive steps (locate tool, verify server, verify restore) take no token.
 ///
 /// Every implementation MUST classify failures into <see cref="RestoreRunnerException"/> with an
 /// actionable, secret-free message (never a raw stack trace, never the Postgres password) — the
@@ -102,12 +103,12 @@ public sealed record RestorePlan(
     RestoreImportMethod ImportMethod);
 
 /// <summary>
-/// The capability token that authorises a destructive restore step. It is unforgeable in the sense
-/// that matters here: its constructor is private and the ONLY factory
-/// (<see cref="ForConfirmed"/>) returns <c>null</c> unless <c>confirmed == true</c>. Because
-/// <see cref="IRestoreRunner"/>'s destructive methods take a non-null token, "drop the database
-/// when the restore was not confirmed" is not an <c>if</c> a caller can forget — it is a state the
-/// type system cannot represent.
+/// The capability token that authorises a destructive restore step. Its constructor is private and
+/// the ONLY factory (<see cref="ForConfirmed"/>) returns <c>null</c> unless <c>confirmed == true</c>.
+/// Because <see cref="IRestoreRunner"/>'s destructive methods take a non-null token, handing them a
+/// possibly-null confirmation surfaces as a nullable-reference-type warning at build time rather than
+/// being silently allowed; the binding guarantee that an unconfirmed drop never runs is the runtime
+/// gate in <see cref="RestoreJobs"/>, which fails the job before any destructive call.
 /// </summary>
 public sealed class RestoreConfirmation
 {
