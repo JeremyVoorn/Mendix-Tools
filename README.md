@@ -88,6 +88,26 @@ dotnet test MendixTools.Components.Tests/MendixTools.Components.Tests.csproj  # 
 
 ---
 
+## Releasing
+
+Releases are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml).
+Pushing a version tag builds the unpackaged Windows app and publishes a GitHub
+Release with an auto-generated changelog and the build zip attached:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The tag (minus the leading `v`) becomes `ApplicationDisplayVersion`, so there is
+no need to hand-edit the version in `Mendix Tools.csproj`.
+
+> The published `.exe` is **unsigned**, so Windows SmartScreen will warn on first
+> run on another machine. That is fine for personal use; distributing more widely
+> would need a code-signing certificate.
+
+---
+
 ## Project layout
 
 ```
