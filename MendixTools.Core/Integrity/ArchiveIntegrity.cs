@@ -32,6 +32,28 @@ public static class ArchiveIntegrity
     private const int MinPlausibleLength = 4;
     private const int ScratchSize = 81920;
 
+    /// <summary>
+    /// MT-17 — detects the archive format of a file on disk from its magic bytes only (cheap; no
+    /// full read). Exposed so the restore engine can decide <c>pg_restore</c> (custom-format dump)
+    /// vs <c>psql</c> (plain SQL) WITHOUT duplicating the byte-signature table. Returns
+    /// <see cref="ArchiveFormat.Unknown"/> for a missing file or an unrecognised header (a plain
+    /// SQL text dump reads as <c>Unknown</c> — it carries no magic — which the restore engine maps
+    /// to the <c>psql</c> path).
+    /// </summary>
+    public static ArchiveFormat DetectFileFormat(string path, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return ArchiveFormat.Unknown;
+        }
+
+        ct.ThrowIfCancellationRequested();
+        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        Span<byte> head = stackalloc byte[MagicLength];
+        var read = ReadFull(stream, head);
+        return DetectFormat(head[..read]);
+    }
+
     /// <summary>Verifies a file on disk. Reads its actual length from the filesystem.</summary>
     public static ArchiveIntegrityResult VerifyFile(string path, long? expectedContentLength, CancellationToken ct = default)
     {
