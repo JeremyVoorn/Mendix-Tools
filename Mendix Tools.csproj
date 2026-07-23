@@ -81,6 +81,14 @@
         <PackageReference Include="Npgsql" Version="10.0.3"/>
     </ItemGroup>
 
+    <!-- MT-REL — single-file installer + auto-update (Velopack).
+         Windows-only: Velopack targets desktop OSes, not android/ios, so scope the
+         reference to the Windows TFM to keep the mobile builds clean. When macOS
+         (MacCatalyst) releases are added later, add a matching condition for it. -->
+    <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+        <PackageReference Include="Velopack" Version="1.2.0"/>
+    </ItemGroup>
+
     <!-- MT-08 — UI-agnostic core library (metadata store; later the job engine). -->
     <ItemGroup>
         <ProjectReference Include="MendixTools.Core\MendixTools.Core.csproj"/>
