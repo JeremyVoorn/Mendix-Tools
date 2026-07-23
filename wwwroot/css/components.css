@@ -763,3 +763,23 @@ html,body{height:100%;}
 .mxt-jobcard__ctx{font-family:var(--font-mono);color:var(--text-tertiary);margin-left:4px;}
 .mxt-jobcard__pct{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-tertiary);}
 .mxt-jobcard__error{margin-top:8px;font-size:var(--text-xs);color:var(--danger-text);line-height:1.4;}
+
+/* ===================================================================== */
+/* MT-19 — DestructiveConfirm (D5 Tier 2 typed-identifier guard).         */
+/* APPEND-ONLY: everything below is new; nothing above is modified.       */
+/* Body-only styling — the shell (overlay/tone/header/footer/focus trap)  */
+/* comes from the Dialog primitive; the retype field reuses .mxt-field /  */
+/* .mxt-input (mono). Column layout + gap mirrors the restore dialog body */
+/* in ui_kits/app/BackupsScreen.jsx.                                      */
+/* ===================================================================== */
+
+.mxt-dconfirm{display:flex;flex-direction:column;gap:14px;}
+
+/* Consequence copy — plain prose in --text-secondary; identifiers set in */
+/* mono and lifted to --text-primary so the at-risk value reads as data.  */
+.mxt-dconfirm__consequence{
+  margin:0;font-size:var(--text-base);color:var(--text-secondary);line-height:1.5;
+}
+.mxt-dconfirm__id{
+  font-family:var(--font-mono);color:var(--text-primary);
+}

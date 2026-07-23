@@ -1,0 +1,156 @@
+@* Mendix Tools — DestructiveConfirm (MT-19). The Tier 2 typed-identifier guard from
+   resolved decision D5: irreversible data destruction, or an action that bypasses a
+   Mendix web-UI safety rail on production. ONE reusable, fully-parameterised component —
+   no action hard-codes its own guard. Reuses the Dialog primitive for the shell (overlay,
+   tone, header, focus trap, footer); this component owns only the consequence copy, the
+   retype input, and the disabled-until-match confirm button.
+
+   Match rule (D5): the typed text is TRIMMED of leading/trailing whitespace, then compared
+   EXACT and CASE-SENSITIVE (ordinal) to TokenValue — Postgres identifiers and Mendix env
+   names are case-significant. The confirm button is disabled until it matches and re-disables
+   the instant it stops matching. Cancel/Esc/overlay are inert (Dialog's OnClose only) — no
+   side effect fires until the enabled confirm button is clicked.
+
+   ConsequenceText renders backtick-delimited identifiers in mono, per the voice
+   ("identifiers are data"), e.g. "This drops and recreates `acme_local`. Open connections
+   will be terminated. This cannot be undone." No "Are you sure…", no exclamation marks.
+
+   Consumers (unchanged component, params only):
+     MT-17/MT-18 clean restore  → TokenLabel="database name",    TokenValue=<local db>
+     X1 drop database           → TokenLabel="database name",    TokenValue=<local db>
+     X3 production deploy        → TokenLabel="environment name", TokenValue=<env name>
+
+   Usage:
+     <DestructiveConfirm Open="_confirm"
+                         Title="Drop and recreate acme_local"
+                         ConsequenceText="This drops and recreates `acme_local`. Open connections will be terminated. This cannot be undone."
+                         TokenLabel="database name" TokenValue="acme_local"
+                         ConfirmLabel="Drop and restore"
+                         OnConfirm="StartRestoreAsync" OnClose="() => _confirm = false" /> *@
+@namespace Mendix_Tools.Components.UI
+
+<Dialog Open="Open"
+        OnClose="OnClose"
+        Tone="Tone"
+        Icon="@Icon"
+        Title="@Title"
+        Width="@Width">
+    <ChildContent>
+        <div class="mxt-dconfirm">
+            <p class="mxt-dconfirm__consequence">
+                @foreach (var seg in Segments)
+                {
+                    @if (seg.Mono)
+                    {
+                        <span class="mxt-dconfirm__id">@seg.Text</span>
+                    }
+                    else
+                    {
+                        @seg.Text
+                    }
+                }
+            </p>
+            <Input Label="@Prompt"
+                   Mono
+                   Value="@_typed"
+                   ValueChanged="OnTypedChanged"
+                   Placeholder="@TokenValue"
+                   autocomplete="off"
+                   autocapitalize="off"
+                   autocorrect="off"
+                   spellcheck="false" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <Button Variant="ButtonVariant.Secondary" OnClick="OnClose">Cancel</Button>
+        <Button Variant="ConfirmVariant" Disabled="@(!IsMatch)" OnClick="ConfirmAsync">@ConfirmLabel</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    private string _typed = string.Empty;
+    private bool _wasOpen;
+
+    /// <summary>Controls visibility. Renders nothing (via Dialog) when false.</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Plain consequence copy. Backtick-delimited spans render in mono
+    /// (identifiers are data), e.g. "This drops and recreates `acme_local`. …". State the
+    /// consequence — no "Are you sure…", no exclamation marks (voice / D5).</summary>
+    [Parameter] public string ConsequenceText { get; set; } = string.Empty;
+
+    /// <summary>What the token IS, used in the field prompt — e.g. "database name" (restore/
+    /// drop) or "environment name" (production deploy). Lets X3 reuse the component unchanged.</summary>
+    [Parameter] public string TokenLabel { get; set; } = "identifier";
+
+    /// <summary>The exact identifier the user must retype to enable the confirm button —
+    /// the local database name for restore/drop, the environment name for a production deploy.</summary>
+    [Parameter] public string TokenValue { get; set; } = string.Empty;
+
+    /// <summary>Label on the destructive confirm button, e.g. "Drop and restore",
+    /// "Drop database", "Deploy to production".</summary>
+    [Parameter] public string ConfirmLabel { get; set; } = "Confirm";
+
+    /// <summary>Dialog header title (bold). Callers pass the action, e.g.
+    /// "Drop and recreate acme_local".</summary>
+    [Parameter] public string? Title { get; set; }
+
+    /// <summary>Tone of the icon tile + confirm button. Defaults to danger — this guard
+    /// only ever fronts destructive/one-way actions (D5 Tier 2).</summary>
+    [Parameter] public DialogTone Tone { get; set; } = DialogTone.Danger;
+
+    /// <summary>Bundled Lucide name for the tone-tinted header tile (default alert-triangle).</summary>
+    [Parameter] public string Icon { get; set; } = "alert-triangle";
+
+    /// <summary>Dialog width in px (default 480, matching the restore dialog).</summary>
+    [Parameter] public int Width { get; set; } = 480;
+
+    /// <summary>Fired ONLY when the enabled confirm button is clicked (i.e. after a match).
+    /// The owner starts the destructive work here.</summary>
+    [Parameter] public EventCallback OnConfirm { get; set; }
+
+    /// <summary>Inert requested-close callback — Esc, overlay-click, the ✕, or Cancel. Fires
+    /// no side effect; the owner just flips <see cref="Open"/> to false.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Trimmed input equals TokenValue exactly and case-sensitively (ordinal).</summary>
+    private bool IsMatch => string.Equals(_typed.Trim(), TokenValue, StringComparison.Ordinal);
+
+    private string Prompt => $"Type the {TokenLabel} to confirm:";
+
+    private ButtonVariant ConfirmVariant =>
+        Tone == DialogTone.Danger ? ButtonVariant.Danger : ButtonVariant.Primary;
+
+    // Reset the typed value each time the guard opens so a prior attempt never leaks in.
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen)
+        {
+            _typed = string.Empty;
+        }
+        _wasOpen = Open;
+    }
+
+    private void OnTypedChanged(string? value) => _typed = value ?? string.Empty;
+
+    private Task ConfirmAsync() => IsMatch ? OnConfirm.InvokeAsync() : Task.CompletedTask;
+
+    // Split ConsequenceText on backticks: even segments are prose, odd segments are mono
+    // identifiers ("a `b` c" -> ["a ", "b", " c"]). A stray unmatched backtick just renders
+    // its tail as prose (odd count) — never throws.
+    private IEnumerable<(string Text, bool Mono)> Segments
+    {
+        get
+        {
+            var parts = (ConsequenceText ?? string.Empty).Split('`');
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (parts[i].Length == 0)
+                {
+                    continue;
+                }
+                yield return (parts[i], i % 2 == 1);
+            }
+        }
+    }
+}

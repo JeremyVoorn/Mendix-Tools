@@ -38,6 +38,11 @@
         <RazorComponent Include="..\Components\UI\Checkbox.razor" Link="AppComponents\Checkbox.razor" />
         <RazorComponent Include="..\Components\UI\Radio.razor" Link="AppComponents\Radio.razor" />
         <RazorComponent Include="..\Components\UI\Tabs.razor" Link="AppComponents\Tabs.razor" />
+        <!-- MT-19 — the Tier 2 guard and its shell/field/action primitives. -->
+        <RazorComponent Include="..\Components\UI\Button.razor" Link="AppComponents\Button.razor" />
+        <RazorComponent Include="..\Components\UI\Input.razor" Link="AppComponents\Input.razor" />
+        <RazorComponent Include="..\Components\UI\Dialog.razor" Link="AppComponents\Dialog.razor" />
+        <RazorComponent Include="..\Components\UI\DestructiveConfirm.razor" Link="AppComponents\DestructiveConfirm.razor" />
     </ItemGroup>
 
 </Project>
