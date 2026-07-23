@@ -4,9 +4,9 @@
 > Test spec: the acceptance criteria below are what the Tester/Reviewer verifies.
 > Design spec: where a story says "matches `<file>`", that file in
 > `docs/design-system/` **is** the spec (layout, copy, spacing, states).
-> Last updated: 2026-07-22 — **MT-14 + MT-20 Done** (wired to the real Mendix API,
-> re-review passed, 89 tests green). Follow-up **MT-20b** opened for the three deferred
-> polish items. Ready-for-dev: MT-15, MT-16, MT-20b. MT-19 still blocked on D5. **Sprint 2 groomed dev-ready:** live field set baked
+> Last updated: 2026-07-23 — **MT-15 Done** (commit `383e4a4`; ToastStack moved to
+> shell, JobEngine log write async). Create-robustness hardening folded into MT-16.
+> Ready-for-dev: MT-16, MT-20b. MT-19 still blocked on the D5 decision. **Sprint 2 groomed dev-ready:** live field set baked
 > into MT-10/MT-20; N6 "last backup: keep it, lazy-loaded" decision propagated (open
 > question 3 closed); test-project + bUnit DoD sharpened on MT-08/MT-09; Sprint 2 status
 > flags corrected to reflect the MT-05/06/07 dependency.
@@ -132,56 +132,25 @@ vault-backed Mendix credentials). **Sprint 3 is now the active sprint.**
 with real progress and a real destructive-action guard. `[ENV]` stories call real
 Mendix APIs — use a test app/environment, never a customer production app, during dev.
 
-> **Slice order & readiness (MT-14 + MT-20 Done — wired to the real API):**
-> - **Ready-for-dev today:** **MT-15** (create backup), **MT-16** (download — deps MT-14
->   + MT-09 both Done), and **MT-20b** (Environments/Backups polish — stale-cache,
->   auto-refresh, pagination). All build on the now-wired `MendixApiClient` /
->   `RealBackupService` / `RealEnvironmentService`.
+> **Slice order & readiness (MT-14/15/20 Done — wired to the real API):**
+> - **Ready-for-dev today:** **MT-16** (download — deps MT-14 + MT-09 both Done) and
+>   **MT-20b** (Environments/Backups polish — stale-cache, auto-refresh, pagination).
+>   Both build on the now-wired `MendixApiClient` / `RealBackupService` /
+>   `RealEnvironmentService`.
 > - **Chain behind them:** MT-16 → MT-17 (restore orchestration) → MT-18 (restore
->   dialog/UI). MT-15 and MT-16 are independent and can go in parallel.
+>   dialog/UI). MT-16 carries a labeled **MT-15-hardening** sub-task (see below).
 > - **Still blocked on the Visionair:** **MT-19** (destructive-action guard) waits on
 >   the **D5 decision** (open question 1) — needed before MT-17's destructive step and
 >   MT-18. Push for D5 now so it doesn't stall the flagship.
 > - **Wired-from-the-start directive (scope-slicing lesson from MT-14):** MT-14 was
 >   first built mock-first for parallel-worktree cleanliness, which conflicted with the
 >   vision's **wired-first** directive for the Backups/Restore pillar; it has since been
->   wired. For the remaining cloud stories (MT-15/16/17/18), **build wired from the
+>   wired. For the remaining cloud stories (MT-16/17/18), **build wired from the
 >   start** where the shared `MendixApiClient` already supports it, and mock only the
 >   parts the client doesn't yet cover.
 > - **No in-app credential pre-validation exists** (MT-13 accepted deviation): every
 >   first real cloud call must handle 401/403 gracefully rather than assuming a
 >   validated key.
-
-### MT-15 — Backups: create snapshot (N7b) `[ENV]` — **Size: S** — READY
-*As a consultant, I want to trigger a fresh snapshot from the app, so that "make a
-backup first" is one click instead of a Sprintr round-trip.*
-
-**Acceptance criteria**
-- **Pre-work (from MT-05 review) — do first or as a tiny pre-MT-15 fix:** `<ToastStack />`
-  is currently rooted in `Styleguide.razor`, not the shell, so toasts fired from real
-  screens silently no-op. Move `<ToastStack />` into `MainLayout.razor` (app-wide) and
-  remove it from `Styleguide.razor`; verify a toast fired from a routed screen renders.
-  This also unblocks MT-18's restore toasts.
-- Given the "Create backup" button (per `BackupsScreen.jsx`), when clicked, then a
-  snapshot is requested via the API for the selected environment and the button enters
-  a loading state.
-- Given snapshot creation is asynchronous, when the request is accepted, then the list
-  shows the new snapshot with its in-progress state and polls until it becomes
-  Available or Failed; failure states the API's reason.
-- Given the create call returns **401/403** (no in-app credential pre-validation exists
-  — MT-13 accepted deviation), when it fails, then the error surfaces gracefully
-  ("Credentials invalid — check Settings › Credentials"), never a crash.
-- Given the operation completes, when done, then a toast states the fact ("Backup
-  created for Acme Insurance · Production.") — voice rules, no celebration.
-- Non-destructive but `[ENV]`: creating snapshots on a real environment is allowed;
-  the action never targets an environment other than the one selected on screen.
-
-**Dependencies:** MT-14 (Done — wired list + `RealBackupService`), MT-05 (Done — Toast).
-**Build wired from the start:** extend `IMendixApiClient`/`RealBackupService` with the
-create-snapshot call; no mock-first detour (scope-slicing lesson from MT-14).
-**DoD extras:** none.
-
----
 
 ### MT-16 — Backups: download archive with progress + integrity check (N7c) `[ENV]` — **Size: M** — READY
 *As a consultant, I want backups downloaded to my data directory with visible progress
@@ -189,6 +158,12 @@ and an integrity check, so that files land where the tooling needs them and I tr
 them.*
 
 **Acceptance criteria**
+- **MT-15-hardening sub-task (labeled, reviewed alongside MT-16):** MT-15's create flow
+  currently requires the create POST response to carry `snapshot_id`, but MT-01 never
+  exercised the create POST so the response shape (200+id vs 202/empty) is unverified.
+  Harden it: default the provenance comment to "Created from Mendix Tools" and **match
+  the new snapshot by comment/`created_at` instead of requiring the id**, so create
+  works regardless of the POST response shape. Verify against the live API.
 - Given a snapshot row's Download action, when clicked, then a job (MT-09) runs:
   request archive creation (**`data_type=database_only` per D4**) → poll archive state →
   download to the configured data directory, rendering as the active-job Card from
@@ -399,6 +374,24 @@ when the user runs it with their own account).
 - **L7 — Slack deploy notifications**: after deploy ships.
 
 ## DONE
+
+### MT-15 — Backups: create snapshot (N7b) — Done 2026-07-23
+Wired create-snapshot via `MendixApiClient`/`RealBackupService`, **passed review**
+(commit `383e4a4`; build green, 92 core + 8 component tests). Create button + loading
+state, completion toast (voice-compliant), graceful 401/403.
+
+- **Pinned pre-work delivered:** `<ToastStack />` moved into the shell (`MainLayout`) so
+  app-wide toasts render from routed screens; JobEngine terminal log write made async.
+- **Product-intent confirmation (recorded so it is not reopened):** AC-2's "shows the
+  new snapshot with its in-progress state" is met via the **active-job card** (StatusDot
+  pulse + ProgressBar, faithful to `BackupsScreen.jsx`) plus a list refresh on
+  completion — **not** an injected in-progress DataTable row. Reviewer ruled met on
+  design-spec-wins. This reading is accepted.
+- **Create-robustness hardened in MT-16:** the create flow's reliance on a `snapshot_id`
+  in the POST response (unverified shape, MT-01 never exercised the create POST) is
+  hardened as a labeled MT-15-hardening sub-task inside MT-16 (default provenance
+  comment + match by comment/`created_at`), reviewed alongside MT-16.
+- **User-verify-live pending** (real API only on the user's own run).
 
 ### MT-20 — Environments dashboard, wired read-only (N6b) — Done 2026-07-22
 Wired to the real Mendix API via `MendixApiClient` + `RealEnvironmentService`, **passed

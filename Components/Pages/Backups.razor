@@ -26,6 +26,7 @@
 @inject IBackupService BackupService
 @inject IEnvironmentService EnvService
 @inject BackupJobs Jobs
+@inject AppSettingsService Settings
 @inject ShellState Shell
 @implements IDisposable
 
@@ -270,6 +271,30 @@
         TrackJob(job, env.Label);
     }
 
+    // ── MT-16 download backup ──────────────────────────────────────────────────────────
+    // Starts a single-snapshot download job through the SAME active-job card MT-15 built.
+    // Download is disabled while any job runs (kept simple — no concurrent jobs).
+
+    private void StartDownload(Snapshot snap)
+    {
+        if (_selectedEnvId is null || !_envIndex.TryGetValue(_selectedEnvId, out var env) || HasActiveJob)
+        {
+            return;
+        }
+
+        // Where the archive lands: the configured data directory, or a sensible app-data default
+        // when the user hasn't set one in Settings › Database. The job creates it if missing.
+        var dir = Settings.DataDirectory;
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            dir = Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, "backups");
+        }
+
+        var options = new DownloadOptions(dir, Settings.VerifyChecksumAfterDownload, Settings.KeepBackupFilesAfterRestore);
+        var job = Jobs.StartDownload(env.ProjectId, _selectedEnvId, snap.SnapshotId, env.Label, options);
+        TrackJob(job, $"{env.Label} · {snap.CreatedAt:yyyy-MM-dd HH:mm}");
+    }
+
     // ── Active-job card plumbing ─────────────────────────────────────────────────────────
 
     private void TrackJob(Job job, string context)
@@ -327,6 +352,7 @@
     private static string JobKindLabel(string kind) => kind switch
     {
         "create-backup" => "Creating backup",
+        "download" => "Downloading backup",
         _ => kind,
     };
 
@@ -368,12 +394,13 @@
                                                      Loading="_refreshing"
                                                      OnClick="RefreshAsync">Refresh</Button>;
 
-    // Bulk-download affordance (MT-16). Shown only with a selection; DISABLED until MT-16 wires it.
+    // Bulk-download affordance. Shown only with a selection; DISABLED in this version — MT-16
+    // ships single-snapshot download (the row action). Bulk/sequential download is out of scope.
     private RenderFragment ListActions =>
     @<text>
         @if (_selected.Count > 0)
         {
-            <Tooltip Label="Available once download is wired (MT-16)">
+            <Tooltip Label="Bulk download isn't available in this version — download snapshots one at a time.">
                 <Button Size="ControlSize.Sm" Variant="ButtonVariant.Secondary" Icon="download" Disabled>
                     Download @_selected.Count
                 </Button>
@@ -430,10 +457,11 @@
                 <Tooltip Label="Available once restore is wired (MT-17)">
                     <Button Size="ControlSize.Sm" Variant="ButtonVariant.Subtle" Icon="database-backup" Disabled>Restore</Button>
                 </Tooltip>
-                @* Download stays disabled until MT-16 wires the archive flow. *@
-                <Tooltip Label="Available once download is wired (MT-16)" Placement="TooltipPlacement.Left">
-                    <IconButton Size="ControlSize.Sm" Icon="download" AriaLabel="Download" Disabled />
-                </Tooltip>
+                @* MT-16 — Download the snapshot's database-only archive to the data directory,
+                   driven through the same active-job card. Disabled while a job runs. *@
+                <IconButton Size="ControlSize.Sm" Icon="download" AriaLabel="Download"
+                            Disabled="@HasActiveJob"
+                            OnClick="@(() => StartDownload(snap))" />
             }
         </div>,
         },

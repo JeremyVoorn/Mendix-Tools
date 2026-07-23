@@ -122,6 +122,15 @@ public sealed record Snapshot
 }
 
 /// <summary>
+/// MT-16 — the result of a completed archive download: where the file landed and its actual
+/// size in bytes (the only size source — the snapshots API exposes none). Feeds MT-17's restore
+/// (the file to <c>pg_restore</c>) and provenance recording.
+/// </summary>
+/// <param name="FilePath">Absolute path to the downloaded, integrity-verified archive.</param>
+/// <param name="SizeBytes">The archive's actual size on disk in bytes.</param>
+public sealed record BackupDownload(string FilePath, long SizeBytes);
+
+/// <summary>
 /// One page of the paginated Backups API v2 snapshots response (<c>{ total, snapshots[] }</c>).
 /// <see cref="Total"/> is the server-side total across all pages; <see cref="Snapshots"/> is
 /// the fetched page. The page shows <see cref="Total"/> so nothing is silently truncated

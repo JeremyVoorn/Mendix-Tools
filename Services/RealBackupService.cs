@@ -119,6 +119,159 @@ public sealed class RealBackupService : IBackupService
         }
     }
 
+    public async Task<BackupDownload> DownloadArchiveAsync(
+        string projectId, string environmentId, string snapshotId, string destinationDirectory,
+        bool verifyIntegrity = true, CancellationToken ct = default)
+    {
+        Directory.CreateDirectory(destinationDirectory);
+        var finalPath = Path.Combine(destinationDirectory, $"snapshot-{Sanitize(snapshotId)}.backup");
+        var partialPath = finalPath + ".part";
+        Delete(partialPath);
+
+        try
+        {
+            var url = await AcquireArchiveUrlAsync(projectId, environmentId, snapshotId, ct).ConfigureAwait(false);
+
+            long? contentLength;
+            var reRequested = false;
+            while (true)
+            {
+                using var download = await _api.OpenArchiveDownloadAsync(url, ct).ConfigureAwait(false);
+
+                if (download.LinkExpired)
+                {
+                    if (reRequested)
+                    {
+                        throw new InvalidOperationException("The archive download link expired and could not be refreshed.");
+                    }
+
+                    reRequested = true;
+                    url = await AcquireArchiveUrlAsync(projectId, environmentId, snapshotId, ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (!download.IsSuccess)
+                {
+                    throw Translate(download.Outcome, "downloading the archive");
+                }
+
+                contentLength = download.ContentLength;
+                await using var file = new FileStream(partialPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                await download.Content!.CopyToAsync(file, ct).ConfigureAwait(false);
+                await file.FlushAsync(ct).ConfigureAwait(false);
+                break;
+            }
+
+            var actual = new FileInfo(partialPath).Length;
+            if (contentLength is { } expected && expected != actual)
+            {
+                Delete(partialPath);
+                throw new InvalidOperationException("The downloaded archive failed its integrity check (size mismatch).");
+            }
+
+            if (verifyIntegrity)
+            {
+                var integrity = MendixTools.Core.Integrity.ArchiveIntegrity.VerifyFile(partialPath, expectedContentLength: null, ct);
+                if (!integrity.IsValid)
+                {
+                    Delete(partialPath);
+                    throw new InvalidOperationException("The downloaded archive failed its integrity check.");
+                }
+            }
+
+            File.Move(partialPath, finalPath, overwrite: true);
+            return new BackupDownload(finalPath, new FileInfo(finalPath).Length);
+        }
+        catch
+        {
+            Delete(partialPath);
+            throw;
+        }
+    }
+
+    /// <summary>Requests a database-only archive and polls to its 8-hour download URL.</summary>
+    private async Task<string> AcquireArchiveUrlAsync(string projectId, string environmentId, string snapshotId, CancellationToken ct)
+    {
+        var create = await _api.CreateArchiveAsync(projectId, environmentId, snapshotId, "database_only", ct).ConfigureAwait(false);
+        if (!create.IsSuccess || create.Value?.ArchiveId is not { Length: > 0 } archiveId)
+        {
+            throw Translate(create.Outcome, "requesting the archive");
+        }
+
+        if (IsCompleted(create.Value.State) && !string.IsNullOrWhiteSpace(create.Value.Url))
+        {
+            return create.Value.Url!;
+        }
+
+        for (var poll = 0; poll < 600; poll++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var get = await _api.GetArchiveAsync(projectId, environmentId, snapshotId, archiveId, ct).ConfigureAwait(false);
+            if (!get.IsSuccess)
+            {
+                throw Translate(get.Outcome, "checking the archive state");
+            }
+
+            var state = get.Value?.State?.Trim().ToLowerInvariant();
+            if (state == "completed")
+            {
+                if (!string.IsNullOrWhiteSpace(get.Value!.Url))
+                {
+                    return get.Value.Url!;
+                }
+
+                throw new InvalidOperationException("The archive completed without a download link.");
+            }
+
+            if (state == "failed")
+            {
+                var reason = string.IsNullOrWhiteSpace(get.Value!.StatusMessage) ? "no reason given" : get.Value.StatusMessage;
+                throw new InvalidOperationException($"The archive failed: {reason}.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException("Timed out waiting for the archive to be prepared.");
+    }
+
+    private static bool IsCompleted(string? state) =>
+        string.Equals(state?.Trim(), "completed", StringComparison.OrdinalIgnoreCase);
+
+    private static string Sanitize(string value)
+    {
+        var safe = new string((value ?? string.Empty)
+            .Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_').ToArray());
+        return string.IsNullOrEmpty(safe) ? "archive" : safe;
+    }
+
+    private static void Delete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // best-effort
+        }
+    }
+
+    /// <summary>Maps a failing client outcome to the exception TYPE the page/job contract expects.</summary>
+    private static Exception Translate(MendixApiOutcome outcome, string context) => outcome switch
+    {
+        MendixApiOutcome.Unauthorized or MendixApiOutcome.Forbidden or MendixApiOutcome.NoCredentials =>
+            new UnauthorizedAccessException("The Mendix credential was rejected."),
+        MendixApiOutcome.NetworkError =>
+            new HttpRequestException("Could not reach the Mendix Backups API."),
+        MendixApiOutcome.RateLimited =>
+            new HttpRequestException("The Mendix Backups API is rate limiting; try again shortly."),
+        _ => new InvalidOperationException($"The Mendix API returned an unexpected response while {context}."),
+    };
+
     /// <summary>
     /// Maps a raw Backups v2 snapshot to the app model. All fields line up 1:1 with the
     /// live-verified shape (MT-01 §4); Type is derived from the comment via

@@ -108,6 +108,97 @@ public interface IMendixApiClient
     /// Reused by MT-17/X5 (backup-before-restore/deploy).
     /// </summary>
     Task<MendixApiResult<SnapshotRaw>> CreateSnapshotAsync(string projectId, string environmentId, string? comment = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// MT-16 — Backups API v2 <c>POST .../snapshots/{snapshotId}/archives?data_type={dataType}</c>.
+    /// Requests an archive for a completed snapshot (default <c>database_only</c> per D4). Returns the
+    /// archive in its initial <c>queued</c>/<c>running</c> state (its <c>url</c> is populated only once
+    /// the archive reaches <c>completed</c>); the download job then polls <see cref="GetArchiveAsync"/>
+    /// until the URL is ready. The download link is valid for 8 hours after completion (MT-01).
+    /// </summary>
+    Task<MendixApiResult<ArchiveRaw>> CreateArchiveAsync(string projectId, string environmentId, string snapshotId, string dataType = "database_only", CancellationToken ct = default);
+
+    /// <summary>
+    /// MT-16 — Backups API v2 <c>GET .../snapshots/{snapshotId}/archives/{archiveId}</c>. Polls one
+    /// archive's state; when <c>completed</c> the <see cref="ArchiveRaw.Url"/> carries the (8-hour)
+    /// download link. <c>failed</c> surfaces <see cref="ArchiveRaw.StatusMessage"/>.
+    /// </summary>
+    Task<MendixApiResult<ArchiveRaw>> GetArchiveAsync(string projectId, string environmentId, string snapshotId, string archiveId, CancellationToken ct = default);
+
+    /// <summary>
+    /// MT-16 — opens the archive download as a STREAM (never buffered whole in memory). The
+    /// <paramref name="url"/> is the pre-signed link from a completed archive: it carries its own
+    /// auth in the query string, so NO Mendix credential/header is attached and the URL is never
+    /// logged (its signature is sensitive). The caller streams <see cref="MendixArchiveDownload.Content"/>
+    /// to disk and disposes the result. An expired link (8-hour window → 401/403/410) is reported as
+    /// <see cref="MendixArchiveDownload.LinkExpired"/> so the job re-requests a fresh archive once;
+    /// 429 is reported as <see cref="MendixApiOutcome.RateLimited"/> with the Retry-After hint.
+    /// Never throws for an HTTP/transport failure.
+    /// </summary>
+    Task<MendixArchiveDownload> OpenArchiveDownloadAsync(string url, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Backups API v2 archive object (snake_case). <see cref="Url"/> is populated only when
+/// <see cref="State"/> reaches <c>completed</c>; the state machine is
+/// <c>queued → running → completed | failed</c>. There is NO checksum/hash field (MT-01 §A2) —
+/// MT-16's LOCAL integrity check (size + gzip/zip structural test) is the only mechanism.
+/// </summary>
+public sealed class ArchiveRaw
+{
+    [JsonPropertyName("archive_id")] public string? ArchiveId { get; set; }
+    [JsonPropertyName("state")] public string? State { get; set; }
+    [JsonPropertyName("data_type")] public string? DataType { get; set; }
+    [JsonPropertyName("snapshot_id")] public string? SnapshotId { get; set; }
+    [JsonPropertyName("status_message")] public string? StatusMessage { get; set; }
+    [JsonPropertyName("url")] public string? Url { get; set; }
+    [JsonPropertyName("created_at")] public DateTimeOffset? CreatedAt { get; set; }
+    [JsonPropertyName("updated_at")] public DateTimeOffset? UpdatedAt { get; set; }
+    [JsonPropertyName("finished_at")] public DateTimeOffset? FinishedAt { get; set; }
+}
+
+/// <summary>
+/// MT-16 — the outcome of opening an archive download. On success it owns an open response +
+/// content <see cref="Content"/> stream (and <see cref="ContentLength"/> when the server sent it):
+/// the caller streams the body to disk and then DISPOSES this to release the socket. Failure modes
+/// mirror <see cref="MendixApiOutcome"/>; <see cref="LinkExpired"/> distinguishes the recoverable
+/// 8-hour-expiry case (re-request the archive) from a hard failure.
+/// </summary>
+public sealed class MendixArchiveDownload : IDisposable
+{
+    private IDisposable? _response;
+
+    public required MendixApiOutcome Outcome { get; init; }
+    public string? Error { get; init; }
+    public TimeSpan? RetryAfter { get; init; }
+
+    /// <summary>Content-Length when the server advertised it; null → progress is indeterminate and
+    /// the size check falls back to the structural test alone.</summary>
+    public long? ContentLength { get; init; }
+
+    /// <summary>The archive body stream (caller streams to disk; disposed with this result).</summary>
+    public Stream? Content { get; init; }
+
+    /// <summary>True when the pre-signed link is expired/rejected (401/403/410) — the caller
+    /// re-requests a fresh archive once (8-hour expiry, MT-16 AC).</summary>
+    public bool LinkExpired { get; init; }
+
+    public bool IsSuccess => Outcome == MendixApiOutcome.Success;
+
+    internal static MendixArchiveDownload Success(Stream content, long? contentLength, IDisposable response) =>
+        new() { Outcome = MendixApiOutcome.Success, Content = content, ContentLength = contentLength, _response = response };
+
+    internal static MendixArchiveDownload Expired() =>
+        new() { Outcome = MendixApiOutcome.Forbidden, LinkExpired = true, Error = "The archive download link has expired." };
+
+    internal static MendixArchiveDownload Fail(MendixApiOutcome outcome, string error, TimeSpan? retryAfter = null) =>
+        new() { Outcome = outcome, Error = error, RetryAfter = retryAfter };
+
+    public void Dispose()
+    {
+        Content?.Dispose();
+        _response?.Dispose();
+    }
 }
 
 // ── RAW DTOs — property names/casing match the live payloads captured in the MT-01 spike ──

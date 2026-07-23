@@ -76,6 +76,32 @@ public sealed class MockBackupService : IBackupService
         };
     }
 
+    public async Task<BackupDownload> DownloadArchiveAsync(
+        string projectId, string environmentId, string snapshotId, string destinationDirectory,
+        bool verifyIntegrity = true, CancellationToken ct = default)
+    {
+        // Simulate archive-request + prepare + a small streamed body. MOCK-ONLY: no HTTP, no secret.
+        await Task.Delay(300, ct).ConfigureAwait(false);
+
+        if (string.Equals(environmentId, "kwik-accp", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UnauthorizedAccessException("The Mendix credential was rejected.");
+        }
+
+        Directory.CreateDirectory(destinationDirectory);
+        var path = Path.Combine(destinationDirectory, $"snapshot-{snapshotId}.backup");
+
+        // Write a small but structurally VALID gzip so the integrity check passes in offline dev.
+        await using (var file = File.Create(path))
+        await using (var gzip = new System.IO.Compression.GZipStream(file, System.IO.Compression.CompressionLevel.Fastest))
+        {
+            var payload = System.Text.Encoding.UTF8.GetBytes($"mock database_only archive for {snapshotId}\n");
+            await gzip.WriteAsync(payload, ct).ConfigureAwait(false);
+        }
+
+        return new BackupDownload(path, new FileInfo(path).Length);
+    }
+
     // One page of 12 snapshots, newest first — the mix the real data showed. `now` is the
     // anchor so Created/Expires render stable relative dates across runs.
     private static IReadOnlyList<Snapshot> BuildRichPage()

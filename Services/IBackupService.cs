@@ -44,4 +44,24 @@ public interface IBackupService
     /// </summary>
     /// <param name="comment">Optional snapshot comment; blank/null sends an empty-comment create.</param>
     Task<Snapshot> CreateBackupAsync(string projectId, string environmentId, string? comment = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// MT-16 — the composable, headless one-shot download: request a <c>database_only</c> archive
+    /// for a completed snapshot, wait for its 8-hour download URL, stream it into
+    /// <paramref name="destinationDirectory"/> (created if missing), verify local integrity, and
+    /// return the file path + actual size. Re-requests a fresh archive once if the link expires.
+    /// The Backups screen drives download through a job (<c>BackupJobs.StartDownload</c>) for
+    /// progress/cancel; this method is the seam MT-17's restore flow composes directly.
+    ///
+    /// Same THROW-on-failure contract as <see cref="CreateBackupAsync"/> (map by exception TYPE):
+    /// <see cref="UnauthorizedAccessException"/> (401/403), <see cref="HttpRequestException"/>
+    /// (network/429), <see cref="InvalidOperationException"/> (server-side archive failure, integrity
+    /// failure, invalid/empty response). On integrity failure the partial file is deleted. Never
+    /// leaks a secret and never logs the (signed) download URL.
+    /// </summary>
+    /// <param name="destinationDirectory">Directory the archive is written to (MT-11 data directory).</param>
+    /// <param name="verifyIntegrity">Run the structural integrity test (MT-12 preference); size is always checked.</param>
+    Task<BackupDownload> DownloadArchiveAsync(
+        string projectId, string environmentId, string snapshotId, string destinationDirectory,
+        bool verifyIntegrity = true, CancellationToken ct = default);
 }

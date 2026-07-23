@@ -81,6 +81,95 @@ public sealed class MendixApiClient : IMendixApiClient
         return SendJsonAsync<SnapshotRaw>(HttpMethod.Post, url, JsonContent.Create(body), ct);
     }
 
+    public Task<MendixApiResult<ArchiveRaw>> CreateArchiveAsync(
+        string projectId, string environmentId, string snapshotId, string dataType = "database_only", CancellationToken ct = default)
+    {
+        var path = $"apps/{Uri.EscapeDataString(projectId)}/environments/{Uri.EscapeDataString(environmentId)}"
+                   + $"/snapshots/{Uri.EscapeDataString(snapshotId)}/archives?data_type={Uri.EscapeDataString(dataType)}";
+        var url = new Uri(new Uri(BackupsV2BaseUrl), path);
+        // No body — the archive kind is a query parameter (data_type). POST with no content.
+        return SendJsonAsync<ArchiveRaw>(HttpMethod.Post, url, content: null, ct);
+    }
+
+    public Task<MendixApiResult<ArchiveRaw>> GetArchiveAsync(
+        string projectId, string environmentId, string snapshotId, string archiveId, CancellationToken ct = default)
+    {
+        var path = $"apps/{Uri.EscapeDataString(projectId)}/environments/{Uri.EscapeDataString(environmentId)}"
+                   + $"/snapshots/{Uri.EscapeDataString(snapshotId)}/archives/{Uri.EscapeDataString(archiveId)}";
+        var url = new Uri(new Uri(BackupsV2BaseUrl), path);
+        return GetAsync<ArchiveRaw>(url, ct);
+    }
+
+    public async Task<MendixArchiveDownload> OpenArchiveDownloadAsync(string url, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return MendixArchiveDownload.Fail(MendixApiOutcome.InvalidResponse, "The archive download link was missing or invalid.");
+        }
+
+        // Pre-signed URL: it authenticates via its own query-string signature, so we attach NO
+        // Mendix credential/header and never log the URL (the signature is sensitive).
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // genuine caller cancellation (job Cancel) — let it propagate.
+        }
+        catch (OperationCanceledException)
+        {
+            return MendixArchiveDownload.Fail(MendixApiOutcome.NetworkError, "The archive download timed out.");
+        }
+        catch (HttpRequestException)
+        {
+            return MendixArchiveDownload.Fail(MendixApiOutcome.NetworkError, "Could not reach the archive download server. Check your connection.");
+        }
+
+        // 401/403/410 on a pre-signed link ≈ the 8-hour window has lapsed → recoverable: the job
+        // re-requests a fresh archive once (MT-16 AC).
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.Gone)
+        {
+            response.Dispose();
+            return MendixArchiveDownload.Expired();
+        }
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            var retryAfter = ReadRetryAfter(response);
+            response.Dispose();
+            return MendixArchiveDownload.Fail(MendixApiOutcome.RateLimited, "Mendix API rate limit reached — retrying shortly.", retryAfter);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var status = (int)response.StatusCode;
+            response.Dispose();
+            return MendixArchiveDownload.Fail(MendixApiOutcome.InvalidResponse, $"The archive download failed (status {status}).");
+        }
+
+        try
+        {
+            var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            var length = response.Content.Headers.ContentLength;
+            // The result owns the response — disposing it releases the socket after streaming.
+            return MendixArchiveDownload.Success(stream, length, response);
+        }
+        catch (Exception) when (ct.IsCancellationRequested)
+        {
+            response.Dispose();
+            throw;
+        }
+        catch
+        {
+            response.Dispose();
+            return MendixArchiveDownload.Fail(MendixApiOutcome.NetworkError, "The archive download stream could not be opened.");
+        }
+    }
+
     private Task<MendixApiResult<T>> GetAsync<T>(Uri url, CancellationToken ct) =>
         SendJsonAsync<T>(HttpMethod.Get, url, content: null, ct);
 

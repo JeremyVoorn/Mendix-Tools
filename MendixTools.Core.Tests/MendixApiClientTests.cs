@@ -242,6 +242,136 @@ public sealed class MendixApiClientTests
         Assert.Equal(MendixApiOutcome.Unauthorized, result.Outcome);
     }
 
+    // ── MT-16 client tests: archive create / poll / streamed download ─────────────────────
+
+    [Fact]
+    public async Task CreateArchiveAsync_PostsDatabaseOnly_ToArchivesUrl_WithAuthHeaders()
+    {
+        HttpMethod? method = null;
+        var handler = new FakeHandler(request =>
+        {
+            method = request.Method;
+            return Json("""{ "archive_id": "arc-1", "state": "queued", "data_type": "database_only" }""");
+        });
+        var client = NewClient(handler);
+
+        var result = await client.CreateArchiveAsync("proj", "env-1", "snap-1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("arc-1", result.Value!.ArchiveId);
+        Assert.Equal(HttpMethod.Post, method);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(
+            "https://deploy.mendix.com/api/v2/apps/proj/environments/env-1/snapshots/snap-1/archives?data_type=database_only",
+            request.RequestUri!.ToString());
+        Assert.Equal("test-user", request.Headers.GetValues("Mendix-Username").Single());
+    }
+
+    [Fact]
+    public async Task GetArchiveAsync_ParsesCompletedArchive_WithUrl()
+    {
+        var handler = new FakeHandler(_ =>
+            Json("""{ "archive_id": "arc-1", "state": "completed", "url": "https://blob.example/arc-1?sig=abc" }"""));
+        var client = NewClient(handler);
+
+        var result = await client.GetArchiveAsync("proj", "env-1", "snap-1", "arc-1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("completed", result.Value!.State);
+        Assert.Equal("https://blob.example/arc-1?sig=abc", result.Value.Url);
+        Assert.Equal(
+            "https://deploy.mendix.com/api/v2/apps/proj/environments/env-1/snapshots/snap-1/archives/arc-1",
+            Assert.Single(handler.Requests).RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task CreateArchiveAsync_429_MapsToRateLimited_WithRetryAfter()
+    {
+        var handler = new FakeHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.Add("Retry-After", "30");
+            return response;
+        });
+
+        var result = await NewClient(handler).CreateArchiveAsync("proj", "env-1", "snap-1");
+
+        Assert.Equal(MendixApiOutcome.RateLimited, result.Outcome);
+        Assert.Equal(TimeSpan.FromSeconds(30), result.RetryAfter);
+    }
+
+    [Fact]
+    public async Task OpenArchiveDownloadAsync_StreamsBody_WithContentLength_NoAuthHeaderOnPresignedUrl()
+    {
+        var payload = "database_only archive payload"u8.ToArray();
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(payload),
+        });
+        var client = NewClient(handler);
+
+        using var download = await client.OpenArchiveDownloadAsync("https://blob.example/arc-1?sig=abc");
+
+        Assert.True(download.IsSuccess);
+        Assert.Equal(payload.Length, download.ContentLength);
+        using var ms = new MemoryStream();
+        await download.Content!.CopyToAsync(ms);
+        Assert.Equal(payload, ms.ToArray());
+
+        // The pre-signed URL carries its own auth — NO Mendix credential header is attached.
+        var request = Assert.Single(handler.Requests);
+        Assert.False(request.Headers.Contains("Mendix-Username"));
+        Assert.False(request.Headers.Contains("Mendix-ApiKey"));
+    }
+
+    [Fact]
+    public async Task OpenArchiveDownloadAsync_403_ReportsLinkExpired()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        using var download = await NewClient(handler).OpenArchiveDownloadAsync("https://blob.example/arc-1?sig=stale");
+
+        Assert.True(download.LinkExpired);
+        Assert.False(download.IsSuccess);
+    }
+
+    [Fact]
+    public async Task OpenArchiveDownloadAsync_429_MapsToRateLimited()
+    {
+        var handler = new FakeHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.Add("Retry-After", "15");
+            return response;
+        });
+
+        using var download = await NewClient(handler).OpenArchiveDownloadAsync("https://blob.example/arc-1?sig=abc");
+
+        Assert.Equal(MendixApiOutcome.RateLimited, download.Outcome);
+        Assert.Equal(TimeSpan.FromSeconds(15), download.RetryAfter);
+    }
+
+    [Fact]
+    public async Task OpenArchiveDownloadAsync_NetworkFailure_MapsToNetworkError_NoThrow()
+    {
+        var handler = new FakeHandler(_ => throw new HttpRequestException("no route to host"));
+
+        using var download = await NewClient(handler).OpenArchiveDownloadAsync("https://blob.example/arc-1?sig=abc");
+
+        Assert.Equal(MendixApiOutcome.NetworkError, download.Outcome);
+    }
+
+    [Fact]
+    public async Task OpenArchiveDownloadAsync_BlankUrl_MapsToInvalidResponse_NoHttpCall()
+    {
+        var handler = new FakeHandler(_ => throw new Xunit.Sdk.XunitException("must not call HTTP for a blank URL"));
+
+        using var download = await NewClient(handler).OpenArchiveDownloadAsync("");
+
+        Assert.Equal(MendixApiOutcome.InvalidResponse, download.Outcome);
+        Assert.Empty(handler.Requests);
+    }
+
     // ── RealEnvironmentService-level tests (mapping) ──────────────────────────────────────
 
     [Fact]

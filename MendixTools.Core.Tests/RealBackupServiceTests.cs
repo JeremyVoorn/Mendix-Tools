@@ -208,6 +208,96 @@ public sealed class RealBackupServiceTests
             () => new RealBackupService(client).CreateBackupAsync("proj", "env"));
     }
 
+    // ── MT-16 DownloadArchiveAsync — composable one-shot seam (for MT-17) ─────────────────
+
+    [Fact]
+    public async Task DownloadArchive_Success_WritesFile_ReturnsPathAndSize()
+    {
+        var payload = Gzip("db-only"u8.ToArray());
+        var client = new FakeApiClient
+        {
+            Result = MendixApiResult<SnapshotsResponseRaw>.Ok(SampleResponse()),
+            CreateArchiveResult = MendixApiResult<ArchiveRaw>.Ok(new ArchiveRaw { ArchiveId = "arc-1", State = "completed", Url = "https://blob.example/arc-1?sig=abc" }),
+            DownloadFactory = () => MendixArchiveDownload.Success(new MemoryStream(payload), payload.Length, new Noop()),
+        };
+        var dir = Path.Combine(Path.GetTempPath(), $"mxt-rbs-{Guid.NewGuid():N}");
+
+        try
+        {
+            var result = await new RealBackupService(client).DownloadArchiveAsync("proj", "env", "snap-1", dir);
+
+            Assert.True(File.Exists(result.FilePath));
+            Assert.Equal(payload.Length, result.SizeBytes);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task DownloadArchive_Unauthorized_ThrowsUnauthorizedAccess()
+    {
+        var client = new FakeApiClient
+        {
+            Result = MendixApiResult<SnapshotsResponseRaw>.Ok(SampleResponse()),
+            CreateArchiveResult = MendixApiResult<ArchiveRaw>.Fail(MendixApiOutcome.Unauthorized, "err"),
+        };
+        var dir = Path.Combine(Path.GetTempPath(), $"mxt-rbs-{Guid.NewGuid():N}");
+
+        try
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(
+                () => new RealBackupService(client).DownloadArchiveAsync("proj", "env", "snap-1", dir));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task DownloadArchive_CorruptArchive_ThrowsInvalidOperation_DeletesPartial()
+    {
+        var corrupt = new byte[512];
+        new Random(3).NextBytes(corrupt);
+        var client = new FakeApiClient
+        {
+            Result = MendixApiResult<SnapshotsResponseRaw>.Ok(SampleResponse()),
+            CreateArchiveResult = MendixApiResult<ArchiveRaw>.Ok(new ArchiveRaw { ArchiveId = "arc-1", State = "completed", Url = "https://blob.example/arc-1?sig=abc" }),
+            DownloadFactory = () => MendixArchiveDownload.Success(new MemoryStream(corrupt), corrupt.Length, new Noop()),
+        };
+        var dir = Path.Combine(Path.GetTempPath(), $"mxt-rbs-{Guid.NewGuid():N}");
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new RealBackupService(client).DownloadArchiveAsync("proj", "env", "snap-1", dir));
+            Assert.False(File.Exists(Path.Combine(dir, "snapshot-snap-1.backup.part")));
+            Assert.False(File.Exists(Path.Combine(dir, "snapshot-snap-1.backup")));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    private static byte[] Gzip(byte[] payload)
+    {
+        using var ms = new MemoryStream();
+        using (var gz = new System.IO.Compression.GZipStream(ms, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+        {
+            gz.Write(payload);
+        }
+
+        return ms.ToArray();
+    }
+
+    private sealed class Noop : IDisposable
+    {
+        public void Dispose() { }
+    }
+
     // ── Fakes & sample data ───────────────────────────────────────────────────────────────
 
     private static SnapshotsResponseRaw SampleResponse() => new()
@@ -251,6 +341,8 @@ public sealed class RealBackupServiceTests
     {
         public required MendixApiResult<SnapshotsResponseRaw> Result { get; init; }
         public MendixApiResult<SnapshotRaw>? CreateResult { get; init; }
+        public MendixApiResult<ArchiveRaw>? CreateArchiveResult { get; init; }
+        public Func<MendixArchiveDownload>? DownloadFactory { get; init; }
         public string? LastProjectId { get; private set; }
         public string? LastEnvironmentId { get; private set; }
         public string? LastCreateProjectId { get; private set; }
@@ -275,5 +367,14 @@ public sealed class RealBackupServiceTests
             LastCreateComment = comment;
             return Task.FromResult(CreateResult ?? throw new Xunit.Sdk.XunitException("CreateResult not configured."));
         }
+
+        public Task<MendixApiResult<ArchiveRaw>> CreateArchiveAsync(string projectId, string environmentId, string snapshotId, string dataType = "database_only", CancellationToken ct = default)
+            => Task.FromResult(CreateArchiveResult ?? throw new Xunit.Sdk.XunitException("CreateArchiveResult not configured."));
+
+        public Task<MendixApiResult<ArchiveRaw>> GetArchiveAsync(string projectId, string environmentId, string snapshotId, string archiveId, CancellationToken ct = default)
+            => throw new Xunit.Sdk.XunitException("This test's archive completes on create — GetArchiveAsync should not be called.");
+
+        public Task<MendixArchiveDownload> OpenArchiveDownloadAsync(string url, CancellationToken ct = default)
+            => Task.FromResult((DownloadFactory ?? throw new Xunit.Sdk.XunitException("DownloadFactory not configured."))());
     }
 }
