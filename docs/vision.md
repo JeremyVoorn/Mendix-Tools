@@ -73,8 +73,8 @@ Borrowed from the design system's voice — **direct, technical, calm.**
 3. **Errors say what happened and what to do next.** "Deploy failed — build exited with
    code 1. View logs."
 4. **Destructive actions state their consequence and demand intent.** "This drops and
-   recreates `acme_local`. This cannot be undone." One destructive-action policy, applied
-   everywhere (see gating decision D5).
+   recreates `acme_local`. This cannot be undone." One destructive-action policy, tiered
+   by real risk, applied everywhere (see resolved decision D5).
 5. **Never surprise the user with a safety rail they didn't know they crossed.** The APIs
    bypass web-UI protections (e.g. production 2FA); we add back an explicit guard.
 6. **Offline is a first-class state, not an error.** Show stale/cached clearly; let local
@@ -194,6 +194,61 @@ These are the calls the Visionair owns; the answers land here as they're made.
   **local integrity check (zip/tar test + `Content-Length`) is the primary mechanism, not a
   fallback.** One item to verify live: the internal layout of a `database_only` archive
   (single `.backup` vs. still tar.gz-wrapped) — feeds N8's unpack step.
-- **D5 — Destructive-action mechanism.** One policy for drop / clean-restore / prod-deploy:
-  type-the-name, env-name echo, or non-prod-by-default. Copy style is already set by the
-  voice; the mechanism is the open part. Decide before N8 ships.
+- **D5 — RESOLVED 2026-07-23 (accepted).** One destructive-action policy, **tiered by real
+  risk**, applied everywhere. **Type-the-identifier is the standard for irreversible,
+  data-destroying, or production-safety-rail-bypassing actions** — nothing weaker gates
+  them. The guard is deliberate-intent, not memory: the exact identifier at risk is shown
+  in mono, the user retypes it, and the destructive button stays disabled until it matches.
+  This is the right call against the north star — a calm, technical consultant tool that
+  adds friction *only* on the one-way doors, never on routine work.
+  - **The tiers:**
+    - **Tier 0 — no guard.** Routine, reversible, non-destructive: create a new database,
+      create a backup, download an archive, deploy/transport to a **non-production**
+      environment, test a connection. Zero friction.
+    - **Tier 1 — plain confirm (one click).** Consequential but recoverable or not
+      data-destroying: remove a credential from the vault, delete a downloaded archive,
+      stop/restart an environment. A single warning-tone Dialog stating the consequence
+      plainly + a confirm button. No typing. Uses the existing Dialog primitive — **no new
+      component.**
+    - **Tier 2 — typed-identifier guard (MT-19).** Irreversible destruction of data, or an
+      action that bypasses a Mendix web-UI safety rail on production. The user types the
+      exact identifier at risk. Covers: **clean restore** (drop + recreate a local DB → type
+      the target database name), **drop database** on Local Databases (X1 → type the database
+      name), and **production deploy/transport** (X3 → type the environment name; the API
+      bypasses web 2FA, principle 5).
+  - **Tier 2 guard spec — what MT-19 implements:**
+    - One **reusable** component, parameterised by `(consequence text, token label, token
+      value)`. No action hard-codes its own guard.
+    - **Token to type = the exact identifier being put at risk** — the local database name for
+      restore/drop, the environment name for a production deploy. Rendered in mono in the copy
+      so the user can read it; this is intent, not recall.
+    - **Match rule:** leading/trailing whitespace trimmed, otherwise **exact and
+      case-sensitive** (Postgres identifiers and env names are case-significant). Destructive
+      button disabled until the input matches; enables the instant it does.
+    - **Copy** follows the voice — state the consequence, no "Are you sure…", no exclamation
+      marks, identifier in mono. Restore example: "This drops and recreates `acme_local`. Open
+      connections will be terminated. This cannot be undone." The component owns the retype
+      input + disabled-button behaviour; the consequence sentence is passed in per action.
+    - **Cancel is inert** — no Postgres/API side effect until the destructive button is pressed.
+      When the target does not exist (creating a fresh DB), the guard is **not** shown —
+      creation is not destructive, and fake friction erodes trust in the guard that matters.
+  - **"Merge into existing" — CUT from v1.** `pg_restore` merge semantics into a schema that
+    already holds data are undefined and unsafe (constraint/PK collisions, partial imports
+    passing as success), it is off the flagship path (a clean, faithful copy of cloud data),
+    and Sprintr does not do it either — so cutting it costs no competitive ground. The restore
+    dialog ships **clean-restore-only**; the "Merge into existing" radio stays visible but
+    **disabled with "not available in this version"** so the option is legibly deferred, not
+    silently missing. Revisit only if users ask for import-over-existing *and* a safe
+    semantics is defined.
+  - **Consequences, propagated:**
+    - **MT-19** builds exactly the Tier 2 component above; its AC (type exact name,
+      case-sensitive, disabled-until-match, inert cancel, no guard on a non-existent target) is
+      confirmed correct as written. **Add:** a parameterised token label so X3 passes
+      "environment name" instead of "database name" and reuses the component unchanged.
+    - **MT-17/MT-18** consume MT-19 for the clean-restore drop step; the merge radio ships
+      disabled; no other guard is added. MT-18's "guard presented before the job starts" is
+      the Tier 2 confirm step.
+    - **X1 (drop database)** and **X3 (production deploy)** reuse MT-19 unchanged — X1 with the
+      DB name, X3 with the environment name. Non-production deploys are Tier 0/1 (no typed
+      guard).
+    - Principle 4 now points to a defined, tiered policy, not an open question.

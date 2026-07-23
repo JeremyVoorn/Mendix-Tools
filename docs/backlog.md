@@ -4,9 +4,10 @@
 > Test spec: the acceptance criteria below are what the Tester/Reviewer verifies.
 > Design spec: where a story says "matches `<file>`", that file in
 > `docs/design-system/` **is** the spec (layout, copy, spacing, states).
-> Last updated: 2026-07-23 — **MT-15 Done** (commit `383e4a4`; ToastStack moved to
-> shell, JobEngine log write async). Create-robustness hardening folded into MT-16.
-> Ready-for-dev: MT-16, MT-20b. MT-19 still blocked on the D5 decision. **Sprint 2 groomed dev-ready:** live field set baked
+> Last updated: 2026-07-23 — **MT-16 Done** (commit `a6461ea`; 122 core + 8 component
+> tests; MT-15 hardening confirmed). Follow-up **MT-16b** opened for two deferred polish
+> items. Ready-for-dev: MT-20b, MT-16b. The restore chain (MT-17/18) now waits only on
+> MT-19 / the **D5 decision** — critical path for the flagship. **Sprint 2 groomed dev-ready:** live field set baked
 > into MT-10/MT-20; N6 "last backup: keep it, lazy-loaded" decision propagated (open
 > question 3 closed); test-project + bUnit DoD sharpened on MT-08/MT-09; Sprint 2 status
 > flags corrected to reflect the MT-05/06/07 dependency.
@@ -132,16 +133,14 @@ vault-backed Mendix credentials). **Sprint 3 is now the active sprint.**
 with real progress and a real destructive-action guard. `[ENV]` stories call real
 Mendix APIs — use a test app/environment, never a customer production app, during dev.
 
-> **Slice order & readiness (MT-14/15/20 Done — wired to the real API):**
-> - **Ready-for-dev today:** **MT-16** (download — deps MT-14 + MT-09 both Done) and
->   **MT-20b** (Environments/Backups polish — stale-cache, auto-refresh, pagination).
->   Both build on the now-wired `MendixApiClient` / `RealBackupService` /
->   `RealEnvironmentService`.
-> - **Chain behind them:** MT-16 → MT-17 (restore orchestration) → MT-18 (restore
->   dialog/UI). MT-16 carries a labeled **MT-15-hardening** sub-task (see below).
-> - **Still blocked on the Visionair:** **MT-19** (destructive-action guard) waits on
->   the **D5 decision** (open question 1) — needed before MT-17's destructive step and
->   MT-18. Push for D5 now so it doesn't stall the flagship.
+> **Slice order & readiness (MT-14/15/16/20 Done — wired to the real API):**
+> - **Ready-for-dev today:** **MT-20b** (Environments/Backups polish — stale-cache,
+>   auto-refresh, pagination) and **MT-16b** (Backups screen polish — active-job
+>   re-attach on navigation, bulk "Download N"). Both build on the now-wired
+>   `MendixApiClient` / `RealBackupService` / `RealEnvironmentService`.
+> - **Restore chain (BLOCKED on D5):** MT-17 (orchestration) → MT-18 (dialog/UI) both
+>   now wait only on **MT-19**, which waits on the **D5 decision** (open question 1).
+>   **This is the critical path for the flagship flow — push the Visionair for D5 now.**
 > - **Wired-from-the-start directive (scope-slicing lesson from MT-14):** MT-14 was
 >   first built mock-first for parallel-worktree cleanliness, which conflicted with the
 >   vision's **wired-first** directive for the Backups/Restore pillar; it has since been
@@ -152,70 +151,37 @@ Mendix APIs — use a test app/environment, never a customer production app, dur
 >   first real cloud call must handle 401/403 gracefully rather than assuming a
 >   validated key.
 
-### MT-16 — Backups: download archive with progress + integrity check (N7c) `[ENV]` — **Size: M** — READY
-*As a consultant, I want backups downloaded to my data directory with visible progress
-and an integrity check, so that files land where the tooling needs them and I trust
-them.*
+### MT-16b — Backups screen polish: active-job re-attach + bulk download (N7) `[ENV]` — **Size: S** — READY
+*As a consultant, I want the active-job card to reappear when I return to the Backups
+screen mid-job, and to download several backups at once, so that the wired screen is
+complete, not just single-job happy-path.*
+
+Tracks the non-blocking items scoped out of MT-15/MT-16 (do not reopen those stories).
 
 **Acceptance criteria**
-- **MT-15-hardening sub-task (labeled, reviewed alongside MT-16):** MT-15's create flow
-  currently requires the create POST response to carry `snapshot_id`, but MT-01 never
-  exercised the create POST so the response shape (200+id vs 202/empty) is unverified.
-  Harden it: default the provenance comment to "Created from Mendix Tools" and **match
-  the new snapshot by comment/`created_at` instead of requiring the id**, so create
-  works regardless of the POST response shape. Verify against the live API.
-- Given a snapshot row's Download action, when clicked, then a job (MT-09) runs:
-  request archive creation (**`data_type=database_only` per D4**) → poll archive state →
-  download to the configured data directory, rendering as the active-job Card from
-  `BackupsScreen.jsx` (StatusDot pulse, phase label, mono timestamp, ProgressBar with
-  %, Dismiss when done) and surviving navigation.
-- Given the download stream, when in progress, then progress reflects bytes/total; a
-  failed or interrupted download ends the job as failed with "what happened + what to
-  do next" — never a generic error.
-- Given the confirmed **8-hour archive-URL expiry**, when a download starts or resumes
-  against an expired URL, then the job **re-requests a fresh archive link
-  automatically** and continues; only if the re-request itself fails does the job fail,
-  stating the cause.
-- Given the API responds **HTTP 429**, when polling or downloading, then the client
-  backs off (honouring `Retry-After` when present) and retries within the job rather
-  than failing immediately; repeated 429s surface as "Mendix API rate limit — retrying"
-  in the job log. (**Implementation-time check, folded in from MT-01:** exact 429
-  behaviour was not observable in the read-only verify run — confirm against the live
-  API while building this story.)
-- Given the archive-creation or download call returns **401/403** (no in-app credential
-  pre-validation exists — MT-13 accepted deviation), when it fails, then the job ends
-  gracefully with "Credentials invalid — check Settings › Credentials", never a crash.
-- Given the archive download response, when implementing, then verify the real
-  response headers (**implementation-time check, folded in from MT-01**):
-  `Content-Length` presence and range/resume support; if `Content-Length` is absent,
-  progress falls back to indeterminate and the size check to the zip/tar test alone.
-- Given a completed download, when the file lands, then its **actual size is recorded
-  in the metadata store** and shown in the UI — the snapshots API returns no size
-  field, so this local record is the only size source (also feeds MT-17 provenance).
-- Given the "verify checksum after download" preference (MT-12) is on, when the
-  download completes, then the
-  **local integrity check is the primary mechanism (D4: no API checksum exists)** —
-  zip/tar integrity test + `Content-Length` size match — and the result is stated; a
-  corrupt file fails the job and is deleted.
-- Given multi-select + "Download N", when clicked, then the selected archives download
-  sequentially under one job with per-item phases.
-- Given archive creation fails server-side, when polled, then the job fails with the
-  API state and the log records the response.
+- **Active-job card re-attach:** Given a create-backup or download job is in flight,
+  when the user navigates away and back to the Backups screen, then `Backups.razor`
+  `OnInitializedAsync` looks up the non-terminal job (via `IJobEngine.Jobs` or a
+  `BackupJobs.CurrentJob` accessor) and `TrackJob`s it, so the active-job card
+  re-renders. **AC-reading ratified:** the MT-16 "surviving navigation" AC is met at the
+  **job level** (singleton `JobEngine`; the job survives and its terminal toast fires
+  regardless of screen — the substantive MT-09 guarantee); this visual card re-attach is
+  the remaining polish, not a defect in MT-15/MT-16.
+- **Bulk "Download N":** Given multiple selected snapshots, when "Download N" is clicked,
+  then the selected archives download **sequentially under one job with per-item
+  phases** (per `BackupsScreen.jsx`). Until this lands, the bulk button stays disabled
+  behind a tooltip (as shipped in MT-16 — single-snapshot download only).
+- **Cosmetic:** the active-job card's context timestamp renders **mono** (per
+  `BackupsScreen.jsx`); optionally simplify the two redundant `?? string.Empty` no-ops
+  to silence the IDE diagnostic.
 
-**Dependencies:** MT-09 (Done), MT-14 (Done — wired list + `RealBackupService`),
-MT-12 (Done — checksum pref), MT-11 (Done — data directory). **All deps satisfied.**
-**Build wired from the start:** extend the shared `MendixApiClient`/`RealBackupService`
-with archive-create/poll/download; mock only what the client doesn't yet cover
-(scope-slicing lesson from MT-14).
-**DoD extras:** orchestration state machine unit-tested with a mocked API client.
-**Do-first (from MT-09 review, non-blocking but due before this high-volume flow):**
-switch the JobEngine log-file write to async (`File.WriteAllLinesAsync`) — the current
-synchronous write is fine for low-volume jobs but should be async before MT-16/MT-17
-stream large logs.
+**Dependencies:** MT-15 (Done), MT-16 (Done), MT-09 (Done). **Flag:** `[ENV]` —
+user-verify-live.
+**DoD extras:** none.
 
 ---
 
-### MT-17 — Restore: pg_restore orchestration (clean restore, core) (N8a) `[D]` `[PG]` — **Size: L** — **BLOCKED(MT-16)**
+### MT-17 — Restore: pg_restore orchestration (clean restore, core) (N8a) `[D]` `[PG]` — **Size: L** — **BLOCKED(MT-19 / D5)**
 *As a consultant, I want a downloaded backup imported into a named local Postgres
 database automatically, so that the unzip/`pg_restore` dance disappears.*
 
@@ -247,9 +213,9 @@ database automatically, so that the unzip/`pg_restore` dance disappears.*
   (D4). Orchestration lives in the core library, unit-tested with a fake process
   runner; one end-to-end test against a real local Postgres is run by the Tester.
 
-**Dependencies:** MT-08 (Done), MT-09 (Done), MT-11 (Done), MT-16, MT-19 (guard must
-gate the destructive step). **Flag:** destructive against the *local* Postgres (drops
-the target DB).
+**Dependencies:** MT-08 (Done), MT-09 (Done), MT-11 (Done), MT-16 (Done), MT-19 (guard
+must gate the destructive step — **the only remaining blocker; waits on D5**).
+**Flag:** destructive against the *local* Postgres (drops the target DB).
 **DoD extras:** end-to-end restore of a real (small) archive verified on Windows.
 **Metadata-store note (from MT-09 review):** MT-09 persists one **terminal** job-history
 row. If this story needs a live-running-job row that survives an app restart mid-restore
@@ -374,6 +340,23 @@ when the user runs it with their own account).
 - **L7 — Slack deploy notifications**: after deploy ships.
 
 ## DONE
+
+### MT-16 — Backups: download archive with progress + integrity check (N7c) — Done 2026-07-23
+Wired download (archive create → poll → download) via `MendixApiClient`/
+`RealBackupService`, **passed review** (commit `a6461ea`; build 0/0, 122 core + 8
+component tests green, security clean, both IDE diagnostics ruled benign). Active-job
+card, 8h-URL re-request, 429 backoff, 401/403 graceful, local integrity check, actual
+size recorded to the metadata store.
+
+- **Folded MT-15 hardening confirmed done:** default provenance comment "Created from
+  Mendix Tools" + resolve-new-snapshot-by-list-match when the create POST body lacks
+  `snapshot_id`.
+- **Two items scoped out → tracked in MT-16b** (do not reopen MT-16): active-job card
+  doesn't re-attach on navigation (job survives + terminal toast fires — MT-09 guarantee
+  holds; visual re-attach is the polish); sequential bulk "Download N" cut (single-
+  snapshot shipped, bulk button disabled behind a tooltip). Cosmetic mono timestamp +
+  `?? string.Empty` cleanup also folded into MT-16b.
+- **User-verify-live pending** (real API only on the user's own run).
 
 ### MT-15 — Backups: create snapshot (N7b) — Done 2026-07-23
 Wired create-snapshot via `MendixApiClient`/`RealBackupService`, **passed review**
