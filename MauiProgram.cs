@@ -7,6 +7,13 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+#if WINDOWS
+        // MT-REL — Velopack MUST run before anything else: on an update/install/uninstall
+        // launch it performs its hook and exits the process, and on a normal launch it
+        // auto-applies any update staged by a previous session's background check.
+        Velopack.VelopackApp.Build().Run();
+#endif
+
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
@@ -130,6 +137,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<Mendix_Tools.Services.IPostgresProbe, Mendix_Tools.Services.NpgsqlPostgresProbe>();
         builder.Services.AddSingleton<Mendix_Tools.Services.IFolderPicker, Mendix_Tools.Services.MauiFolderPicker>();
 
+#if WINDOWS
+        // MT-REL — auto-update client (Windows only). Singleton: one check per session.
+        builder.Services.AddSingleton<Mendix_Tools.Services.WindowsUpdateService>();
+#endif
+
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
@@ -140,6 +152,19 @@ public static class MauiProgram
         // MT-08 — create the DB file and run migrations on startup (AC: "on first run,
         // when the app starts, a SQLite DB is created … with schema/migrations").
         app.Services.GetRequiredService<IMetadataStore>().InitializeAsync().GetAwaiter().GetResult();
+
+#if WINDOWS
+        // MT-REL — check GitHub Releases for a newer version in the background. Fire-and-forget
+        // and self-contained (never throws): the update stages silently and applies on next
+        // launch, so this can never delay or destabilise startup. A short delay lets the
+        // BlazorWebView shell mount so the "update ready" toast has somewhere to land.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            await app.Services.GetRequiredService<Mendix_Tools.Services.WindowsUpdateService>()
+                .CheckInBackgroundAsync();
+        });
+#endif
 
         return app;
     }

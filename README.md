@@ -90,21 +90,30 @@ dotnet test MendixTools.Components.Tests/MendixTools.Components.Tests.csproj  # 
 
 ## Releasing
 
-Releases are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml).
-Pushing a version tag builds the unpackaged Windows app and publishes a GitHub
-Release with an auto-generated changelog and the build zip attached:
+Releases are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml)
+using [Velopack](https://velopack.io/). Pushing a version tag builds a **single-file
+installer** (`Setup.exe`) and publishes it — together with the update manifest and a
+changelog built from the git log — to a GitHub Release:
 
 ```bash
 git tag v1.2.0
-git push origin v1.2.0
+git push main v1.2.0   # "main" here is the remote name (this repo's remote is not "origin")
 ```
 
-The tag (minus the leading `v`) becomes `ApplicationDisplayVersion`, so there is
-no need to hand-edit the version in `Mendix Tools.csproj`.
+The tag (minus the leading `v`) becomes the release version, so there is no need to
+hand-edit the version in `Mendix Tools.csproj`.
 
-> The published `.exe` is **unsigned**, so Windows SmartScreen will warn on first
-> run on another machine. That is fine for personal use; distributing more widely
-> would need a code-signing certificate.
+### Auto-update
+
+Installed copies check this repo's GitHub Releases on startup (see
+[`Platforms/Windows/Services/WindowsUpdateService.cs`](Platforms/Windows/Services/WindowsUpdateService.cs)).
+A newer version is downloaded in the background and **applied on the next launch** —
+`VelopackApp.Build().Run()` in [`MauiProgram.cs`](MauiProgram.cs) stages it. Running
+from `bin/` (dev) is not a real install, so the check is skipped there.
+
+> The installer and app are **unsigned**, so Windows SmartScreen will warn on first
+> install. That is fine for personal use; distributing more widely would need a
+> code-signing certificate (Velopack can sign during `vpk pack`).
 
 ---
 

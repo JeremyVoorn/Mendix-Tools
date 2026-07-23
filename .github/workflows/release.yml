@@ -1,22 +1,28 @@
 name: Release
 
 # Cut a release by pushing a version tag, e.g.:
-#   git tag v1.2.0 && git push origin v1.2.0
-# The tag (minus the leading "v") becomes the app's display version.
+#   git tag v1.2.0 && git push main v1.2.0     (note: this repo's remote is named "main")
+# The tag (minus the leading "v") becomes the release version.
+#
+# The build produces a Velopack single-file installer (Setup.exe) plus the update
+# manifest, and publishes them to a GitHub Release. Installed copies of the app then
+# auto-update from that same Releases feed (see WindowsUpdateService).
 on:
   push:
     tags:
       - "v*"
 
-# Required so the workflow can create the GitHub Release and upload assets.
+# Required so vpk can create the GitHub Release and upload assets via GITHUB_TOKEN.
 permissions:
   contents: write
 
 env:
-  # The single Windows target framework from "Mendix Tools.csproj".
   WINDOWS_TFM: net10.0-windows10.0.19041.0
   RUNTIME_ID: win10-x64
   PROJECT: "Mendix Tools.csproj"
+  PACK_ID: MendixTools
+  MAIN_EXE: "Mendix Tools.exe"
+  REPO_URL: https://github.com/JeremyVoorn/Mendix-Tools
 
 jobs:
   windows:
@@ -24,17 +30,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so we can build a changelog from the previous tag
 
       - name: Derive version from tag
         id: version
         shell: pwsh
-        # v1.2.0 -> 1.2.0 (ApplicationDisplayVersion).
-        # ApplicationVersion must be an integer; use the monotonic run number.
         run: |
-          $display = "${{ github.ref_name }}".TrimStart("v")
-          "display=$display" >> $env:GITHUB_OUTPUT
-          "build=${{ github.run_number }}" >> $env:GITHUB_OUTPUT
-          Write-Host "Releasing display=$display build=${{ github.run_number }}"
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Releasing v$v"
+
+      - name: Build release notes from git log
+        id: notes
+        shell: pwsh
+        run: |
+          # Previous tag (if any) → changelog of subjects since then. First release: whole history.
+          $prev = git describe --tags --abbrev=0 "${{ github.ref_name }}^" 2>$null
+          $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..${{ github.ref_name }}" } else { "${{ github.ref_name }}" }
+          $log = git log $range --no-merges --pretty=format:"- %s"
+          if (-not $log) { $log = "- Maintenance release." }
+          $header = if ($prev) { "## Changes since $prev`n`n" } else { "## Initial release`n`n" }
+          Set-Content -Path notes.md -Value ($header + ($log -join "`n")) -Encoding utf8
+          Get-Content notes.md
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -44,54 +62,58 @@ jobs:
       - name: Install MAUI workload
         run: dotnet workload install maui
 
+      - name: Install Velopack CLI (vpk)
+        # Pin vpk to the same version as the Velopack package in the csproj.
+        run: dotnet tool install -g vpk --version 1.2.0
+
       - name: Restore
         run: dotnet restore "${{ env.PROJECT }}"
 
-      - name: Publish (unpackaged Windows)
+      - name: Publish (self-contained, unpackaged Windows)
         shell: pwsh
-        # WindowsPackageType=None is already set in the csproj, so this produces
-        # a self-contained folder of loose files (the .exe + dependencies).
+        # Self-contained so the installed app needs no separate .NET / WindowsAppSDK runtime.
         run: |
           dotnet publish "${{ env.PROJECT }}" `
             -c Release `
             -f ${{ env.WINDOWS_TFM }} `
             -p:RuntimeIdentifierOverride=${{ env.RUNTIME_ID }} `
-            -p:ApplicationDisplayVersion=${{ steps.version.outputs.display }} `
-            -p:ApplicationVersion=${{ steps.version.outputs.build }} `
+            --self-contained true `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:ApplicationDisplayVersion=${{ steps.version.outputs.version }} `
             -o publish/windows
 
-      - name: Zip artifact
+      - name: Download previous release (for delta updates)
         shell: pwsh
+        # Lets vpk build small delta packages against the last release. Best-effort:
+        # on the very first release there is nothing to download, which is fine.
         run: |
-          $zip = "MendixTools-${{ steps.version.outputs.display }}-win-x64.zip"
-          Compress-Archive -Path publish/windows/* -DestinationPath $zip -Force
-          "ASSET=$zip" >> $env:GITHUB_ENV
+          vpk download github --repoUrl "${{ env.REPO_URL }}" --token "${{ secrets.GITHUB_TOKEN }}"
+          if ($LASTEXITCODE -ne 0) { Write-Host "No prior release to delta against — continuing." }
+        continue-on-error: true
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          # generate_release_notes builds the changelog from commits/PRs since
-          # the previous tag automatically — nothing to maintain by hand.
-          generate_release_notes: true
-          files: ${{ env.ASSET }}
+      - name: Pack installer (vpk)
+        run: >
+          vpk pack
+          --packId ${{ env.PACK_ID }}
+          --packVersion ${{ steps.version.outputs.version }}
+          --packDir publish/windows
+          --mainExe "${{ env.MAIN_EXE }}"
+          --packTitle "Mendix Tools"
+          --packAuthors "Jeremy Voorn"
+          --releaseNotes notes.md
+
+      - name: Publish GitHub Release (vpk upload)
+        run: >
+          vpk upload github
+          --repoUrl "${{ env.REPO_URL }}"
+          --publish
+          --releaseName "v${{ steps.version.outputs.version }}"
+          --tag "${{ github.ref_name }}"
+          --token "${{ secrets.GITHUB_TOKEN }}"
 
   # --- Future: macOS (MacCatalyst) ---------------------------------------
-  # When you want Mac builds, uncomment and finish this job. It needs an Apple
-  # signing certificate + provisioning profile in repo secrets before the
-  # published .app/.pkg will run on other machines.
-  #
-  # macos:
-  #   runs-on: macos-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-dotnet@v4
-  #       with:
-  #         dotnet-version: "10.0.x"
-  #     - run: dotnet workload install maui
-  #     - run: dotnet restore "${{ env.PROJECT }}"
-  #     - run: >
-  #         dotnet publish "${{ env.PROJECT }}"
-  #         -c Release -f net10.0-maccatalyst
-  #         -p:RuntimeIdentifier=maccatalyst-x64
-  #         -p:ApplicationDisplayVersion=... -p:ApplicationVersion=...
-  #     # ... sign, zip the .app, and add to the same release ...
+  # Velopack also builds .pkg installers + auto-update for macOS. When you want Mac
+  # releases: add the Velopack package reference for the maccatalyst TFM in the csproj,
+  # add a macos-latest job that publishes MacCatalyst, then `vpk pack` / `vpk upload
+  # github` on the mac runner. Signing/notarization secrets are needed before a .pkg
+  # will install cleanly on other Macs.
